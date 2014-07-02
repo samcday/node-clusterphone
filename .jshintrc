@@ -1,0 +1,16 @@
+{
+  "node": true,
+  "unused": true,
+  "strict": true,
+  "eqeqeq": true,
+  "latedef": true,
+
+  "globals": {
+    "describe"   : false,
+    "it"         : false,
+    "before"     : false,
+    "beforeEach" : false,
+    "after"      : false,
+    "afterEach"  : false
+  }
+}
