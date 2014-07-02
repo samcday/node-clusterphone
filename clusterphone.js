@@ -1,11 +1,10 @@
 "use strict";
 
-// TODO: cleanup pendings as not everything will be ack'd.
-// TODO: coalesce namespace message handlers into one handler.
-
 var cluster = require("cluster"),
     Promise = require("bluebird"),
     debug = require("debug")("clusterphone:" + (cluster.isMaster ? "master" : "worker" + cluster.worker.id));
+
+var blackholePromise = new Promise(function() {});
 
 var namespaces = {};
 
@@ -25,23 +24,32 @@ function namespaced(namespaceName) {
   namespace.interface.name = namespaceName;
 
   if (cluster.isMaster) {
+    var workerDataAccessor = "__clusterphone";
+    if ("undefined" !== typeof global.Symbol) {
+      workerDataAccessor = Symbol();
+    }
+
     // Gets our private data section from a worker object.
-    // TODO: check if runtime has Symbol support and use that.
     var getWorkerData = function(worker) {
       if (!worker) {
         throw new TypeError("Trying to get private data for null worker?!");
       }
-      if (!worker.__clusterphone) {
-        worker.__clusterphone = {};
+
+      var data = worker[workerDataAccessor];
+      if (!data) {
+        worker[workerDataAccessor] = data = {};
       }
-      if (!worker.__clusterphone[namespaceName]) {
-        worker.__clusterphone[namespaceName] = {
+
+      var namespacedData = data[namespaceName];
+      if (!namespacedData) {
+        data[namespaceName] = namespacedData = {
           seq: 1,
           pending: {},
           queued: []
         };
       }
-      return worker.__clusterphone[namespaceName];
+
+      return namespacedData;
     };
 
     namespace.getPending = function(seq) {
@@ -100,7 +108,16 @@ function namespaced(namespaceName) {
         worker.send(message, fd);
       });
 
-      return promise.nodeify(cb);
+      return promise.timeout(module.exports.ackTimeout)
+        .catch(Promise.TimeoutError, function() {
+          delete workerData.pending[seq];
+          if (!module.exports.ignoreAckTimeouts) {
+            throw new Error("Timed out waiting for acknowledgement.");
+          } else {
+            return blackholePromise;
+          }
+        })
+        .nodeify(cb);
     };
 
     var sendQueued = function(worker) {
@@ -135,8 +152,11 @@ function namespaced(namespaceName) {
       return pending;
     };
 
-    var sendToMaster = function(cmd, payload, fd) {
-      var deferred = Promise.defer();
+    var sendToMaster = function(cmd, payload, fd, cb) {
+      if (!cb && "function" === typeof fd) {
+        cb = fd;
+        fd = null;
+      }
 
       var seq = seqCounter++;
       var message = {
@@ -147,10 +167,22 @@ function namespaced(namespaceName) {
           payload: payload
         }
       };
-      pendings[seq] = deferred;
+
+      var promise = new Promise(function(resolve, reject) {
+        pendings[seq] = [resolve, reject];
+      });
 
       process.send(message, fd);
-      return deferred.promise;
+      return promise.timeout(module.exports.ackTimeout)
+        .catch(Promise.TimeoutError, function() {
+          delete pendings[seq];
+          if (!module.exports.ignoreAckTimeouts) {
+            throw new Error("Timed out waiting for acknowledgement.");
+          } else {
+            return blackholePromise;
+          }
+        })
+        .nodeify(cb);
     };
 
     namespace.interface.handlers = {};
@@ -248,3 +280,6 @@ if (cluster.isMaster) {
 
 module.exports = namespaced("_");
 module.exports.ns = namespaced;
+module.exports.ackTimeout = 5 * 60 * 1000;  // 5 minutes by default.
+module.exports.ignoreAckTimeouts = false;
+

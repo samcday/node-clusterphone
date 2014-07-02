@@ -5,9 +5,6 @@ var Promise = require("bluebird"),
     net     = Promise.promisifyAll(require("net")),
     clusterphone = require("../clusterphone");
 
-// TODO: test namespaces don't collide.
-// TODO: test payload data is correct.
-
 var expect = require("chai").expect;
 
 Promise.onPossiblyUnhandledRejection(function(e) {
@@ -80,10 +77,27 @@ describe("clusterphone", function() {
     });
   });
 
-  it("sends messages to workers correctly", function() {
-    return spawnWorkerAndWait("ack-cb").then(function(worker) {
+  it("sends message data to workers correctly", function() {
+    return spawnWorkerAndWait("echo").then(function(worker) {
       clusterphone.sendTo(worker, "foo", {bar: "quux"}).then(function(reply) {
+        expect(reply).to.deep.eql({bar: "quux"});
+      });
+    });
+  });
+
+  it("handles node cb style acking from workers", function() {
+    return spawnWorkerAndWait("ack-cb").then(function(worker) {
+      clusterphone.sendTo(worker, "foo").then(function(reply) {
+        expect(reply).to.eql("cb");
+      });
+    });
+  });
+
+  it("handles node cb style acking for master", function(done) {
+    spawnWorkerAndWait("ack").then(function(worker) {
+      clusterphone.sendTo(worker, "foo", {}, function(err, reply) {
         expect(reply).to.eql("recv");
+        done();
       });
     });
   });
@@ -127,10 +141,17 @@ describe("clusterphone", function() {
   it("handles unknown namespaces", function() {
     return spawnWorkerAndWait("ack").then(function(worker) {
       return clusterphone.ns("secret").sendTo(worker, "foo").then(function() {
-        console.log(arguments);
         throw new Error("I shouldn't be called.");
       }).error(function(err) {
         expect(err.message).to.match(/unknown namespace/i);
+      });
+    });
+  });
+
+  it("prevents namespace collisions", function() {
+    return spawnWorkerAndWait("ack-ns").then(function(worker) {
+      return clusterphone.ns("secret").sendTo(worker, "foo").then(function(reply) {
+        expect(reply).to.eql("correct");
       });
     });
   });
