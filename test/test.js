@@ -156,6 +156,30 @@ describe("clusterphone", function() {
     });
   });
 
+  it("correctly sends messages to master from worker", function() {
+    var worker = spawnWorker("send");
+
+    return clusterphone.handlers.foo = function(data) {
+      expect(data.bar).to.eql("quux");
+    };
+  });
+
+  it("correctly sends acks from master to worker", function() {
+    var worker = spawnWorker("send");
+
+    clusterphone.handlers.foo = function() {
+      console.log(":D");
+      return Promise.resolve("ok");
+    };
+
+    return new Promise(function(resolve) {
+      clusterphone.handlers.gotack = function(ackReply) {
+        expect(ackReply).to.eql("ok");
+        resolve();
+      }
+    });
+  });
+
   // it("undeliverable queued messages will error", function() {
   //   var worker = spawnWorker("exit");
 

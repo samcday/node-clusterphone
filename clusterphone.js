@@ -160,13 +160,15 @@ function namespaced(namespaceName) {
 
       var seq = seqCounter++;
       var message = {
-        _clusterphone: {
+        __clusterphone: {
           ns: namespaceName,
           seq: seq,
           cmd: cmd,
           payload: payload
         }
       };
+
+      debug("Sending message sequence " + seq + " " + cmd + " to master.");
 
       var promise = new Promise(function(resolve, reject) {
         pendings[seq] = [resolve, reject];
