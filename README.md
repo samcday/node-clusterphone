@@ -1,5 +1,7 @@
 # clusterphone
 
+[![Build Status](https://travis-ci.org/samcday/clusterphone.svg?branch=master)](https://travis-ci.org/samcday/clusterphone) [![Dependency Status](https://david-dm.org/samcday/clusterphone.svg)](https://david-dm.org/samcday/clusterphone)
+
 Easy-mode messaging between your `cluster` master <--> workers.
 
 ## Quickstart
