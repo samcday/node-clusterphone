@@ -28,7 +28,7 @@
     "messaging"
   ],
   "author": "Sam Day <me@samcday.com.au>",
-  "license": "Unlicense",
+  "license": "MIT",
   "bugs": {
     "url": "https://github.com/samcday/clusterphone/issues"
   },

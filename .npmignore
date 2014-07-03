@@ -2,4 +2,5 @@
 .jshintrc
 .npmignore
 .travis.yml
-test
+test/
+LICENSE
