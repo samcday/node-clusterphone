@@ -182,6 +182,44 @@ describe("clusterphone", function() {
     });
   });
 
+  it("older versions of library does not overwrite globals", function() {
+    var worker = spawnWorker("older-version");
+
+    return clusterphone.sendTo(worker, "version").then(function(reply) {
+      expect(reply).to.deep.equal(require("../package").version);
+    });
+  });
+
+  it("older versions of library receives messages and sends acks correctly", function() {
+    var worker = spawnWorker("older-version");
+
+    return clusterphone.sendTo(worker, "echo", {bar: "quux"}).then(function(reply) {
+      expect(reply).to.deep.equal({bar: "quux"});
+    });
+  });
+
+  it("older versions of library sends messages and receives acks correctly", function() {
+    var worker = spawnWorker("older-version");
+
+    var pongData;
+    clusterphone.handlers.pong = function(data) {
+      pongData = data;
+      return Promise.resolve();
+    };
+
+    return clusterphone.sendTo(worker, "ping").then(function() {
+      expect(pongData).to.deep.equal({bar: "quux"});
+    });
+  });
+
+  it("older version in custom namespace receives messages correctly", function() {
+    var worker = spawnWorker("older-version");
+
+    return clusterphone.ns("secret").sendTo(worker, "echo", {bar: "quux"}).then(function(reply) {
+      expect(reply).to.deep.equal({secret: {bar: "quux"}});
+    });
+  });
+
   // it("undeliverable queued messages will error", function() {
   //   var worker = spawnWorker("exit");
 

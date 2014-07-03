@@ -1,6 +1,6 @@
 {
   "name": "clusterphone",
-  "version": "0.0.6",
+  "version": "0.0.7-pre",
   "description": "Easy-mode messaging between your cluster master and workers.",
   "main": "clusterphone.js",
   "directories": {
@@ -16,6 +16,7 @@
     "mocha": "^1.20.1"
   },
   "scripts": {
+    "pretest": "cd test/worker-behaviors/older-version; npm install",
     "test": "mocha test/test.js"
   },
   "repository": {

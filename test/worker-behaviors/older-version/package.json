@@ -1,0 +1,7 @@
+{
+  "name": "older-version",
+  "private": true,
+  "dependencies": {
+    "clusterphone": "0.0.6"
+  }
+}
