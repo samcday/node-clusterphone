@@ -32,6 +32,8 @@ if (!clusterphone) {
       clusterphone.messageHandler.call(process, message, fd);
     });
   }
+} else {
+  namespaces = clusterphone.namespaces;
 }
 
 function sendAck(namespaceName, seq, reply, error) {
