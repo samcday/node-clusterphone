@@ -2,13 +2,123 @@
 
 var cluster = require("cluster"),
     Promise = require("bluebird"),
-    debug = require("debug")("clusterphone:" + (cluster.isMaster ? "master" : "worker" + cluster.worker.id));
+    semver  = require("semver"),
+    pkg     = require("./package"),
+    debug   = require("debug")("clusterphone:" + (cluster.isMaster ? "master" : "worker" + cluster.worker.id));
 
 var blackholePromise = new Promise(function() {});
 
-var namespaces = process.__clusterphone;
-if (!namespaces) {
-  process.__clusterphone = namespaces = {};
+// We initialize ourselves in the global process space. This is so multiple
+// versions of the library can co-exist harmoniously.
+var clusterphone = process.__clusterphone,
+    namespaces;
+
+if (!clusterphone) {
+  process.__clusterphone = clusterphone = {
+    namespaces: {}
+  };
+  namespaces = clusterphone.namespaces;
+
+  // We only want to bind these once, and they dispatch to whatever
+  // messageHandler has been set on the clusterphone global.
+  if (cluster.isMaster) {
+    cluster.on("fork", function(worker) {
+      worker.on("message", function(message, fd) {
+        clusterphone.messageHandler.call(worker, message, fd);
+      });
+    });
+  } else {
+    process.on("message", function(message, fd) {
+      clusterphone.messageHandler.call(process, message, fd);
+    });
+  }
+}
+
+function sendAck(namespaceName, seq, reply, error) {
+  debug("Sending ack for message seq " + seq);
+  this.send({
+    __clusterphone: {
+      ns: namespaceName,
+      ack: seq,
+      reply: reply,
+      error: error,
+    }
+  });
+};
+
+function messageHandler(message, fd) {
+  /*jshint validthis:true */
+  if (!message || !message.__clusterphone) {
+    return;
+  }
+
+  message = message.__clusterphone;
+
+  var nsName = message.ns,
+      ackNum = message.ack,
+      seq = message.seq;
+
+  if (!nsName || !namespaces.hasOwnProperty(nsName)) {
+    debug("Got a message for unknown namespace '" + nsName + "'.");
+
+    if (ackNum) {
+      debug("Nonsensical: getting an ack for a namespace we don't know about.");
+      return;
+    }
+
+    return sendAck.call(this, nsName, seq, null, "Unknown namespace.");
+  }
+
+  var namespace = namespaces[nsName];
+
+  if (ackNum) {
+    debug("Handling ack for seq " + ackNum);
+    var pending = namespace.getPending.call(this, ackNum);
+    if (!pending) {
+      debug("Got an ack for a message that wasn't pending.");
+      return;
+    }
+    if (message.error) {
+      return pending[1](new Error(message.error));
+    }
+    return pending[0](message.reply);
+  }
+
+  var cmd = message.cmd,
+      handler = namespace.interface.handlers[cmd];
+
+  debug("Handling message seq " + seq + " " + cmd);
+
+  if (!handler) {
+    debug("Got a message I can't handle: " + cmd);
+    return sendAck.call(this, nsName, seq, null, "Unhandled message type");
+  }
+
+  var handlerPromise = new Promise(function(resolve) {
+    var result = handler(message.payload, fd, resolve);
+    if (result && "function" === typeof result.then) {
+      resolve(result);
+    }
+  });
+
+  var self = this;
+
+  handlerPromise.then(function(reply) {
+    sendAck.call(self, nsName, seq, reply);
+  }).catch(function(err) {
+    debug("Caught error when running " + cmd + " handler.");
+    debug(err);
+  });
+};
+
+// If we're the first clusterphone to initialise, OR we're a newer version than
+// the one that has already initialised, we use our message handler impl.
+if (!clusterphone.version || semver.gt(pkg.version, clusterphone.version)) {
+  if (clusterphone.version) {
+    debug("Older version of clusterphone messageHandler being replaced by " + pkg.version);
+  }
+  clusterphone.version = pkg.version;
+  clusterphone.messageHandler = messageHandler;
 }
 
 function namespaced(namespaceName) {
@@ -197,92 +307,6 @@ function namespaced(namespaceName) {
   }
 
   return namespace.interface;
-}
-
-var sendAck = function(namespaceName, seq, reply, error) {
-  debug("Sending ack for message seq " + seq);
-  this.send({
-    __clusterphone: {
-      ns: namespaceName,
-      ack: seq,
-      reply: reply,
-      error: error,
-    }
-  });
-};
-
-function messageHandler(message, fd) {
-  /*jshint validthis:true */
-  if (!message || !message.__clusterphone) {
-    return;
-  }
-
-  message = message.__clusterphone;
-
-  var nsName = message.ns,
-      ackNum = message.ack,
-      seq = message.seq;
-
-  if (!nsName || !namespaces.hasOwnProperty(nsName)) {
-    debug("Got a message for unknown namespace '" + nsName + "'.");
-
-    if (ackNum) {
-      debug("Nonsensical: getting an ack for a namespace we don't know about.");
-      return;
-    }
-
-    return sendAck.call(this, nsName, seq, null, "Unknown namespace.");
-  }
-
-  var namespace = namespaces[nsName];
-
-  if (ackNum) {
-    debug("Handling ack for seq " + ackNum);
-    var pending = namespace.getPending.call(this, ackNum);
-    if (!pending) {
-      debug("Got an ack for a message that wasn't pending.");
-      return;
-    }
-    if (message.error) {
-      return pending[1](new Error(message.error));
-    }
-    return pending[0](message.reply);
-  }
-
-  // namespace.messageHandler.call(this, message, fd);
-  var cmd = message.cmd,
-      handler = namespace.interface.handlers[cmd];
-
-  debug("Handling message seq " + seq + " " + cmd);
-
-  if (!handler) {
-    debug("Got a message I can't handle: " + cmd);
-    return sendAck.call(this, nsName, seq, null, "Unhandled message type");
-  }
-
-  var handlerPromise = new Promise(function(resolve) {
-    var result = handler(message.payload, fd, resolve);
-    if (result && "function" === typeof result.then) {
-      resolve(result);
-    }
-  });
-
-  var self = this;
-
-  handlerPromise.then(function(reply) {
-    sendAck.call(self, nsName, seq, reply);
-  }).catch(function(err) {
-    debug("Caught error when running " + cmd + " handler.");
-    debug(err);
-  });
-}
-
-if (cluster.isMaster) {
-  cluster.on("fork", function(worker) {
-    worker.on("message", messageHandler.bind(worker));
-  });
-} else {
-  process.on("message", messageHandler.bind(process));
 }
 
 module.exports = namespaced("_");
