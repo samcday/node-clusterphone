@@ -157,15 +157,18 @@ describe("clusterphone", function() {
   });
 
   it("correctly sends messages to master from worker", function() {
-    var worker = spawnWorker("send");
+    spawnWorker("send");
 
-    return clusterphone.handlers.foo = function(data) {
-      expect(data.bar).to.eql("quux");
-    };
+    return new Promise(function(resolve) {
+      clusterphone.handlers.foo = function(data) {
+        expect(data.bar).to.eql("quux");
+        resolve();
+      };
+    });
   });
 
   it("correctly sends acks from master to worker", function() {
-    var worker = spawnWorker("send");
+    spawnWorker("send");
 
     clusterphone.handlers.foo = function() {
       return Promise.resolve("ok");
@@ -175,7 +178,7 @@ describe("clusterphone", function() {
       clusterphone.handlers.gotack = function(ackReply) {
         expect(ackReply).to.eql("ok");
         resolve();
-      }
+      };
     });
   });
 

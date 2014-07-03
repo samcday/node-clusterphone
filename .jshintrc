@@ -4,6 +4,7 @@
   "strict": true,
   "eqeqeq": true,
   "latedef": true,
+  "newcap":false,
 
   "globals": {
     "describe"   : false,
@@ -12,6 +13,6 @@
     "beforeEach" : false,
     "after"      : false,
     "afterEach"  : false,
-    "Symbol":    : false
+    "Symbol"     : false
   }
 }
