@@ -25,6 +25,11 @@ Handle messages from master in your worker:
         console.log(payload.key); // --> "value"
     };
 
+Just like with the underlying Node.js `cluster` IPC messaging tools, you can send file descriptors to the remote. This can be done from both workers and master.
+
+    var connection = net.createConnection({host: "google.com", port: 80});
+    clusterphone.sendToMaster("socket", {}, connection);
+
 ## Acknowledgements
 
 You can be notified when the remote end has handled your message. Acknowledgements can optionally include a reply payload.
