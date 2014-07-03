@@ -12,6 +12,6 @@
     "beforeEach" : false,
     "after"      : false,
     "afterEach"  : false,
-    "Symbol":    : false,
+    "Symbol":    : false
   }
 }

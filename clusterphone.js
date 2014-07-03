@@ -289,4 +289,3 @@ module.exports = namespaced("_");
 module.exports.ns = namespaced;
 module.exports.ackTimeout = 5 * 60 * 1000;  // 5 minutes by default.
 module.exports.ignoreAckTimeouts = false;
-
