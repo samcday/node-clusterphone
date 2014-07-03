@@ -168,7 +168,6 @@ describe("clusterphone", function() {
     var worker = spawnWorker("send");
 
     clusterphone.handlers.foo = function() {
-      console.log(":D");
       return Promise.resolve("ok");
     };
 

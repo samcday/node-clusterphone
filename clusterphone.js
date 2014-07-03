@@ -6,7 +6,10 @@ var cluster = require("cluster"),
 
 var blackholePromise = new Promise(function() {});
 
-var namespaces = {};
+var namespaces = process.__clusterphone;
+if (!namespaces) {
+  process.__clusterphone = namespaces = {};
+}
 
 function namespaced(namespaceName) {
   if (!namespaceName) {
@@ -17,6 +20,8 @@ function namespaced(namespaceName) {
   if (namespace) {
     return namespace.interface;
   }
+
+  debug("Setting up namespace for '" + namespaceName + "'");
 
   namespace = namespaces[namespaceName] = {
     interface: {}
@@ -219,7 +224,7 @@ function messageHandler(message, fd) {
       seq = message.seq;
 
   if (!nsName || !namespaces.hasOwnProperty(nsName)) {
-    debug("Got a message for unknown namespace.");
+    debug("Got a message for unknown namespace '" + nsName + "'.");
 
     if (ackNum) {
       debug("Nonsensical: getting an ack for a namespace we don't know about.");
