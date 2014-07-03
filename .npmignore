@@ -1,4 +1,5 @@
 .editorconfig
 .jshintrc
+.npmignore
 .travis.yml
 test
