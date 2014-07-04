@@ -1,3 +1,5 @@
+// This worker entrypoint will bring in two different versions of clusterphone
+// to test backwards compatibility.
 require("../../../clusterphone");
 
 var clusterphone = require("clusterphone"),

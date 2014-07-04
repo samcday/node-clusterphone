@@ -69,7 +69,7 @@ describe("clusterphone", function() {
 
     return server.listenAsync().then(function() {
       client = net.createConnection(server.address().port);
-      return spawnWorkerAndWait("server");
+      return spawnWorkerAndWait("standard");
     }).then(function(worker) {
       return clusterphone.sendTo(worker, "server", {}, client);
     }).then(function() {
@@ -78,24 +78,24 @@ describe("clusterphone", function() {
   });
 
   it("sends message data to workers correctly", function() {
-    return spawnWorkerAndWait("echo").then(function(worker) {
-      clusterphone.sendTo(worker, "foo", {bar: "quux"}).then(function(reply) {
+    return spawnWorkerAndWait("standard").then(function(worker) {
+      clusterphone.sendTo(worker, "echo", {bar: "quux"}).then(function(reply) {
         expect(reply).to.deep.eql({bar: "quux"});
       });
     });
   });
 
   it("handles node cb style acking from workers", function() {
-    return spawnWorkerAndWait("ack-cb").then(function(worker) {
-      clusterphone.sendTo(worker, "foo").then(function(reply) {
+    return spawnWorkerAndWait("standard").then(function(worker) {
+      clusterphone.sendTo(worker, "ackCallback").then(function(reply) {
         expect(reply).to.eql("cb");
       });
     });
   });
 
   it("handles node cb style acking for master", function(done) {
-    spawnWorkerAndWait("ack").then(function(worker) {
-      clusterphone.sendTo(worker, "foo", {}, function(err, reply) {
+    spawnWorkerAndWait("standard").then(function(worker) {
+      clusterphone.sendTo(worker, "ack", {}, function(err, reply) {
         expect(reply).to.eql("recv");
         done();
       });
@@ -103,33 +103,33 @@ describe("clusterphone", function() {
   });
 
   it("queues messages up whilst workers are booting", function() {
-    var worker = spawnWorker("ack");
-    return clusterphone.sendTo(worker, "foo").then(function(reply) {
+    var worker = spawnWorker("standard");
+    return clusterphone.sendTo(worker, "ack").then(function(reply) {
       expect(reply).to.eql("recv");
     });
   });
 
   it("refuses to queue messages bearing a descriptor", function() {
-    var worker = spawnWorker("ack");
+    var worker = spawnWorker("standard");
 
     expect(function() {
-      clusterphone.sendTo(worker, "foo", {}, {fd: 123});
+      clusterphone.sendTo(worker, "server", {}, {fd: 123});
     }).to.throw(/tried to send an FD/);
   });
 
   it("handles acks correctly", function() {
-    return spawnWorkerAndWait("ack-filtered").then(function(worker) {
-      clusterphone.sendTo(worker, "foo").then(function() {
+    return spawnWorkerAndWait("standard").then(function(worker) {
+      clusterphone.sendTo(worker, "ackFiltered").then(function() {
         throw new Error("I shouldn't have been ack'd.");
       });
-      return clusterphone.sendTo(worker, "foo", {ackme: true}).then(function(reply) {
+      return clusterphone.sendTo(worker, "ackFiltered", {ackme: true}).then(function(reply) {
         expect(reply).to.equal("recv");
       });
     });
   });
 
   it("unhandled messages are an error", function() {
-    var worker = spawnWorker("ack");
+    var worker = spawnWorker("standard");
 
     return clusterphone.sendTo(worker, "unknown").then(function() {
       throw new Error("I shouldn't have been called.");
@@ -139,8 +139,8 @@ describe("clusterphone", function() {
   });
 
   it("handles unknown namespaces", function() {
-    return spawnWorkerAndWait("ack").then(function(worker) {
-      return clusterphone.ns("secret").sendTo(worker, "foo").then(function() {
+    return spawnWorkerAndWait("standard").then(function(worker) {
+      return clusterphone.ns("unknownns").sendTo(worker, "namespaced").then(function() {
         throw new Error("I shouldn't be called.");
       }).error(function(err) {
         expect(err.message).to.match(/unknown namespace/i);
@@ -149,8 +149,8 @@ describe("clusterphone", function() {
   });
 
   it("prevents namespace collisions", function() {
-    return spawnWorkerAndWait("ack-ns").then(function(worker) {
-      return clusterphone.ns("secret").sendTo(worker, "foo").then(function(reply) {
+    return spawnWorkerAndWait("standard").then(function(worker) {
+      return clusterphone.ns("secret").sendTo(worker, "namespaced").then(function(reply) {
         expect(reply).to.eql("correct");
       });
     });
