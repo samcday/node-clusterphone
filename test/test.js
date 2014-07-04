@@ -3,12 +3,8 @@
 var Promise = require("bluebird"),
     cluster = require("cluster"),
     net     = Promise.promisifyAll(require("net")),
-    clusterphone = require("../clusterphone");
-
-// TODO: test acknowledgements
-// TODO: test acknowledgements on dead workers
-// TODO: test ack timeouts
-// TODO: enforce within() BEFORE ackd()
+    clusterphone = require("../clusterphone"),
+    sinon = require("sinon");
 
 var expect = require("chai").expect;
 
@@ -56,6 +52,41 @@ describe("clusterphone", function() {
     }).to.throw(TypeError);
   });
 
+  it("refuses to dispatch to a worker that is gone", function(done) {
+    var worker = spawnWorker("exit");
+
+    worker.on("exit", function() {
+      expect(function() {
+        clusterphone.sendTo(worker, "resurrect");
+      }).to.throw(/worker is dead/i);
+      done();
+    })
+  });
+
+  it("master refuses to dispatch an empty or null command", function() {
+    var worker = spawnWorker("exit");
+    expect(function() {
+      clusterphone.sendTo(worker);
+    }).to.throw(/command is required/i);
+
+    expect(function() {
+      clusterphone.sendTo(worker, "");
+    }).to.throw(/command is required/i);
+
+    expect(function() {
+      clusterphone.sendTo(worker, []);
+    }).to.throw(/command is required/i);
+  });
+
+  it("worker refuses to dispatch an empty or null command", function(done) {
+    var worker = spawnWorker("test-args");
+
+    worker.on("exit", function(code) {
+      expect(code).to.equal(0);
+      done();
+    });
+  });
+
   it("sends descriptors correctly", function() {
     var server = Promise.promisifyAll(net.createServer()),
         client;
@@ -84,16 +115,17 @@ describe("clusterphone", function() {
 
   it("sends message data to workers correctly", function() {
     return spawnWorkerAndWait("standard").then(function(worker) {
-      clusterphone.sendTo(worker, "echo", {bar: "quux"}).ackd().then(function(reply) {
+      return clusterphone.sendTo(worker, "echo", {bar: "quux"}).ackd().then(function(reply) {
         expect(reply).to.deep.eql({bar: "quux"});
       });
     });
   });
 
-  it("handles node cb style acking from workers", function() {
+  it("handles node cb style acking from workers", function(done) {
     return spawnWorkerAndWait("standard").then(function(worker) {
       clusterphone.sendTo(worker, "ackCallback").ackd().then(function(reply) {
         expect(reply).to.eql("cb");
+        done();
       });
     });
   });
@@ -114,6 +146,113 @@ describe("clusterphone", function() {
     });
   });
 
+  it("fails acknowledgement if worker dies before acking", function() {
+    var worker = spawnWorker("standard");
+    return clusterphone.sendTo(worker, "exit").ackd()
+      .then(function(reply) {
+        throw new Error("I shouldn't be called.");
+      })
+      .catch(function(err) {
+        expect(err.message).to.match(/worker died/i);
+      });
+  });
+
+  it("errors on undeliverable queued messages", function() {
+    var worker = spawnWorker("exit");
+
+    return clusterphone.sendTo(worker, "foo").ackd().then(function() {
+      throw new Error("I shouldn't have been called.");
+    }).error(function(err) {
+      expect(err.message).to.match(/worker died/);
+    });
+  });
+
+  it("times out acknowledgements correctly", function() {
+    var clock;
+
+    setImmediate(function() {
+      clock.tick(clusterphone.ackTimeout + 1);
+    });
+
+    after(function() {
+      clock.restore();
+    });
+
+    clock = sinon.useFakeTimers();
+
+    var worker = spawnWorker("standard");
+    return clusterphone.sendTo(worker, "noAck").ackd()
+      .then(function() {
+        console.log("Hrm2.");
+        throw new Error("I shouldn't be called.");
+      })
+      .catch(function(err) {
+        expect(err.message).to.match(/timed out/);
+        clock.restore();
+      });
+  });
+
+  it("respects explicit timeout properly", function() {
+    var clock;
+
+    setImmediate(function() {
+      clock.tick(50);
+    });
+    after(function() {
+      clock.restore();
+    });
+
+    clock = sinon.useFakeTimers();
+
+    var worker = spawnWorker("standard");
+    return clusterphone.sendTo(worker, "noAck").within(10).ackd()
+      .then(function() {
+        throw new Error("I shouldn't be called.");
+      })
+      .catch(function(err) {
+        expect(err.message).to.match(/timed out/);
+        clock.restore();
+      });
+  });
+
+  it("refuses to allow timeout to be specified once ack handler is set", function() {
+    var worker = spawnWorker("standard");
+
+    expect(function() {
+      var api = clusterphone.sendTo(worker, "ack");
+      api.ackd().catch(function() {});
+      api.within();
+    }).to.throw(/within.* must be called/);
+  });
+
+  it("refuses to allow handler to be specified after next tick", function(done) {
+    var worker = spawnWorker("standard");
+    var api = clusterphone.sendTo(worker, "ack");
+
+    setImmediate(function() {
+      expect(function() {
+        api.ackd();
+      }).to.throw(/calls are only valid immediately/);
+
+      expect(function() {
+        api.within();
+      }).to.throw(/calls are only valid immediately/);
+      done();
+    });
+  });
+
+  it("within requires a number", function() {
+    var worker = spawnWorker("standard");
+    
+    expect(function() {
+      clusterphone.sendTo(worker, "ack").within();
+    }).to.throw(/must be a number/);
+
+    expect(function() {
+      clusterphone.sendTo(worker, "ack").within("bacon");
+    }).to.throw(/must be a number/);
+  });
+
   it("refuses to queue messages bearing a descriptor", function() {
     var worker = spawnWorker("standard");
 
@@ -124,10 +263,7 @@ describe("clusterphone", function() {
 
   it("handles acks correctly", function() {
     return spawnWorkerAndWait("standard").then(function(worker) {
-      clusterphone.sendTo(worker, "ackFiltered").ackd().then(function() {
-        throw new Error("I shouldn't have been ack'd.");
-      });
-      return clusterphone.sendTo(worker, "ackFiltered", {ackme: true}).ackd().then(function(reply) {
+      return clusterphone.sendTo(worker, "ackFiltered", {ackme: true}).acknowledged().then(function(reply) {
         expect(reply).to.equal("recv");
       });
     });
@@ -224,14 +360,4 @@ describe("clusterphone", function() {
       expect(reply).to.deep.equal({secret: {bar: "quux"}});
     });
   });
-
-  // it("undeliverable queued messages will error", function() {
-  //   var worker = spawnWorker("exit");
-
-  //   return clusterphone.sendTo(worker, "foo").then(function() {
-  //     throw new Error("I shouldn't have been called.");
-  //   }).error(function(err) {
-  //     expect(err.message).to.match(/Undeliverable/);
-  //   });
-  // });
 });

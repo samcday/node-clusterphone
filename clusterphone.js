@@ -6,8 +6,6 @@ var cluster = require("cluster"),
     pkg     = require("./package"),
     debug   = require("debug")("clusterphone:" + (cluster.isMaster ? "master" : "worker" + cluster.worker.id));
 
-// TODO: serialize and propagate errors between remote ends?
-
 // We initialize ourselves in the global process space. This is so multiple
 // versions of the library can co-exist harmoniously.
 var clusterphone = process.__clusterphone,
@@ -150,6 +148,12 @@ function constructMessageApi(namespace, seq) {
     if (resolve.monitored) {
       throw new Error("within() must be called *before* acknowledged()");
     }
+    if ("number" !== typeof newTimeout) {
+      newTimeout = parseInt(newTimeout, 10);
+    }
+    if(!newTimeout) {
+      throw new Error("Timeout must be a number");
+    }
     timeout = newTimeout;
     return api;
   };
@@ -232,8 +236,16 @@ function namespaced(namespaceName) {
         throw new TypeError("Worker must be specified");
       }
 
-      var canSend = ["listening", "online"].indexOf(worker.state) > -1;
+      if (worker.state === "dead") {
+        throw new Error("Worker is dead. Can't send message to it.");
+      }
 
+      cmd = cmd ? String(cmd) : cmd;
+      if (!cmd) {
+        throw new Error("Command is required.");
+      }
+
+      var canSend = ["listening", "online"].indexOf(worker.state) > -1;
       if (!canSend && fd) {
         throw new Error("You tried to send an FD to a worker that isn't online yet." +
           "Whilst ordinarily I'd be happy to queue messages for you, deferring sending a descriptor could " +
@@ -286,18 +298,21 @@ function namespaced(namespaceName) {
       }
     };
 
-    // TODO: re-enable me.
-    // var cleanPending = function(worker) {
-    //   var data = getWorkerData(worker);
+    // If a worker dies, fail any monitored ack deferreds.
+    var cleanPending = function(worker) {
+      var data = getWorkerData(worker);
 
-    //   Object.keys(data.pending).forEach(function(seqNum) {
-    //     var item = data.pending[seqNum];
-    //     delete data.pending[seqNum];
-    //     item[1](new Error("Undeliverable message: worker died before we could get acknowledgement"));
-    //   });
-    // };
+      Object.keys(data.pending).forEach(function(seqNum) {
+        var item = data.pending[seqNum];
+        delete data.pending[seqNum];
+        if (item[0].monitored) {
+          item[1](new Error("Undeliverable message: worker died before we could get acknowledgement"));
+        }
+      });
+    };
 
-    cluster.on("online", sendQueued.bind(null));
+    cluster.on("online", sendQueued);
+    cluster.on("disconnect", cleanPending);
 
     namespace.interface.handlers = {};
     namespace.interface.sendTo = sendTo;
@@ -314,6 +329,11 @@ function namespaced(namespaceName) {
     var sendToMaster = function(cmd, payload, fd) {
       var seq = seqCounter++,
           api = constructMessageApi(namespace, seq);
+
+      cmd = cmd ? String(cmd) : cmd;
+      if (!cmd) {
+        throw new Error("Command is required.");
+      }
 
       debug("Sending message sequence " + seq + " " + cmd + " to master.");
 
