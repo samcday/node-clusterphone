@@ -14,7 +14,7 @@ clusterphone.handlers.echo = function(data) {
 };
 
 clusterphone.handlers.ping = function() {
-  return clusterphone.sendToMaster("pong", {bar: "quux"});
+  return clusterphone.sendToMaster("pong", {bar: "quux"}).ackd();
 }
 
 clusterphone.ns("secret").handlers.echo = function(data) {

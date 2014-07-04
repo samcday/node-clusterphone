@@ -5,6 +5,11 @@ var Promise = require("bluebird"),
     net     = Promise.promisifyAll(require("net")),
     clusterphone = require("../clusterphone");
 
+// TODO: test acknowledgements
+// TODO: test acknowledgements on dead workers
+// TODO: test ack timeouts
+// TODO: enforce within() BEFORE ackd()
+
 var expect = require("chai").expect;
 
 Promise.onPossiblyUnhandledRejection(function(e) {
@@ -71,7 +76,7 @@ describe("clusterphone", function() {
       client = net.createConnection(server.address().port);
       return spawnWorkerAndWait("standard");
     }).then(function(worker) {
-      return clusterphone.sendTo(worker, "server", {}, client);
+      return clusterphone.sendTo(worker, "server", {}, client).ackd();
     }).then(function() {
       return deferred.promise;
     });
@@ -79,7 +84,7 @@ describe("clusterphone", function() {
 
   it("sends message data to workers correctly", function() {
     return spawnWorkerAndWait("standard").then(function(worker) {
-      clusterphone.sendTo(worker, "echo", {bar: "quux"}).then(function(reply) {
+      clusterphone.sendTo(worker, "echo", {bar: "quux"}).ackd().then(function(reply) {
         expect(reply).to.deep.eql({bar: "quux"});
       });
     });
@@ -87,7 +92,7 @@ describe("clusterphone", function() {
 
   it("handles node cb style acking from workers", function() {
     return spawnWorkerAndWait("standard").then(function(worker) {
-      clusterphone.sendTo(worker, "ackCallback").then(function(reply) {
+      clusterphone.sendTo(worker, "ackCallback").ackd().then(function(reply) {
         expect(reply).to.eql("cb");
       });
     });
@@ -95,7 +100,7 @@ describe("clusterphone", function() {
 
   it("handles node cb style acking for master", function(done) {
     spawnWorkerAndWait("standard").then(function(worker) {
-      clusterphone.sendTo(worker, "ack", {}, function(err, reply) {
+      clusterphone.sendTo(worker, "ack").ackd(function(err, reply) {
         expect(reply).to.eql("recv");
         done();
       });
@@ -104,7 +109,7 @@ describe("clusterphone", function() {
 
   it("queues messages up whilst workers are booting", function() {
     var worker = spawnWorker("standard");
-    return clusterphone.sendTo(worker, "ack").then(function(reply) {
+    return clusterphone.sendTo(worker, "ack").ackd().then(function(reply) {
       expect(reply).to.eql("recv");
     });
   });
@@ -119,10 +124,10 @@ describe("clusterphone", function() {
 
   it("handles acks correctly", function() {
     return spawnWorkerAndWait("standard").then(function(worker) {
-      clusterphone.sendTo(worker, "ackFiltered").then(function() {
+      clusterphone.sendTo(worker, "ackFiltered").ackd().then(function() {
         throw new Error("I shouldn't have been ack'd.");
       });
-      return clusterphone.sendTo(worker, "ackFiltered", {ackme: true}).then(function(reply) {
+      return clusterphone.sendTo(worker, "ackFiltered", {ackme: true}).ackd().then(function(reply) {
         expect(reply).to.equal("recv");
       });
     });
@@ -131,7 +136,7 @@ describe("clusterphone", function() {
   it("unhandled messages are an error", function() {
     var worker = spawnWorker("standard");
 
-    return clusterphone.sendTo(worker, "unknown").then(function() {
+    return clusterphone.sendTo(worker, "unknown").ackd().then(function() {
       throw new Error("I shouldn't have been called.");
     }).error(function(err) {
       expect(err.message).to.match(/Unhandled message type/);
@@ -140,7 +145,7 @@ describe("clusterphone", function() {
 
   it("handles unknown namespaces", function() {
     return spawnWorkerAndWait("standard").then(function(worker) {
-      return clusterphone.ns("unknownns").sendTo(worker, "namespaced").then(function() {
+      return clusterphone.ns("unknownns").sendTo(worker, "namespaced").ackd().then(function() {
         throw new Error("I shouldn't be called.");
       }).error(function(err) {
         expect(err.message).to.match(/unknown namespace/i);
@@ -150,7 +155,7 @@ describe("clusterphone", function() {
 
   it("prevents namespace collisions", function() {
     return spawnWorkerAndWait("standard").then(function(worker) {
-      return clusterphone.ns("secret").sendTo(worker, "namespaced").then(function(reply) {
+      return clusterphone.ns("secret").sendTo(worker, "namespaced").ackd().then(function(reply) {
         expect(reply).to.eql("correct");
       });
     });
@@ -185,7 +190,7 @@ describe("clusterphone", function() {
   it("older versions of library does not overwrite globals", function() {
     var worker = spawnWorker("older-version");
 
-    return clusterphone.sendTo(worker, "version").then(function(reply) {
+    return clusterphone.sendTo(worker, "version").ackd().then(function(reply) {
       expect(reply).to.deep.equal(require("../package").version);
     });
   });
@@ -193,7 +198,7 @@ describe("clusterphone", function() {
   it("older versions of library receives messages and sends acks correctly", function() {
     var worker = spawnWorker("older-version");
 
-    return clusterphone.sendTo(worker, "echo", {bar: "quux"}).then(function(reply) {
+    return clusterphone.sendTo(worker, "echo", {bar: "quux"}).ackd().then(function(reply) {
       expect(reply).to.deep.equal({bar: "quux"});
     });
   });
@@ -207,7 +212,7 @@ describe("clusterphone", function() {
       return Promise.resolve();
     };
 
-    return clusterphone.sendTo(worker, "ping").then(function() {
+    return clusterphone.sendTo(worker, "ping").ackd().then(function() {
       expect(pongData).to.deep.equal({bar: "quux"});
     });
   });
@@ -215,7 +220,7 @@ describe("clusterphone", function() {
   it("older version in custom namespace receives messages correctly", function() {
     var worker = spawnWorker("older-version");
 
-    return clusterphone.ns("secret").sendTo(worker, "echo", {bar: "quux"}).then(function(reply) {
+    return clusterphone.ns("secret").sendTo(worker, "echo", {bar: "quux"}).ackd().then(function(reply) {
       expect(reply).to.deep.equal({secret: {bar: "quux"}});
     });
   });

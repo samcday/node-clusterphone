@@ -6,7 +6,7 @@ var cluster = require("cluster"),
     pkg     = require("./package"),
     debug   = require("debug")("clusterphone:" + (cluster.isMaster ? "master" : "worker" + cluster.worker.id));
 
-var blackholePromise = new Promise(function() {});
+// TODO: serialize and propagate errors between remote ends?
 
 // We initialize ourselves in the global process space. This is so multiple
 // versions of the library can co-exist harmoniously.
@@ -80,6 +80,9 @@ function messageHandler(message, fd) {
       debug("Got an ack for a message that wasn't pending.");
       return;
     }
+    if (!pending[0].monitored) {
+      return;
+    }
     if (message.error) {
       return pending[1](new Error(message.error));
     }
@@ -122,6 +125,54 @@ if (!clusterphone.version || semver.gt(pkg.version, clusterphone.version)) {
   clusterphone.version = pkg.version;
   clusterphone.messageHandler = messageHandler;
 }
+
+// Build the object that we return from sendTo calls.
+function constructMessageApi(namespace, seq) {
+  var api = {},
+      valid = true,
+      timeout = module.exports.ackTimeout,
+      resolve,
+      reject;
+
+  var promise = new Promise(function(_resolve, _reject) {
+    resolve = _resolve;
+    reject = _reject;
+  });
+
+  setImmediate(function() {
+    valid = false;
+  });
+
+  api.within = function(newTimeout) {
+    if (!valid) {
+      throw new Error("within() / acknowledged() calls are only valid immediately after sending a message.");
+    }
+    if (resolve.monitored) {
+      throw new Error("within() must be called *before* acknowledged()");
+    }
+    timeout = newTimeout;
+    return api;
+  };
+
+  api.acknowledged = function(cb) {
+    if (!valid) {
+      throw new Error("within() / acknowledged() calls are only valid immediately after sending a message.");
+    }
+    // This flag indicates that the caller does actually care about the resolution of this acknowledgement.
+    resolve.monitored = true;
+    return promise.timeout(timeout)
+        .catch(Promise.TimeoutError, function(e) {
+          // We retrieve the pending here to ensure it's deleted.
+          namespace.getPending(seq);
+          throw e;
+        })
+        .nodeify(cb);
+  };
+
+  api.ackd = api.acknowledged;
+
+  return [api, resolve, reject];
+};
 
 function namespaced(namespaceName) {
   if (!namespaceName) {
@@ -176,75 +227,66 @@ function namespaced(namespaceName) {
       return pending;
     };
 
-    var sendTo = function(worker, cmd, payload, fd, cb) {
+    var sendTo = function(worker, cmd, payload, fd) {
       if (!worker) {
         throw new TypeError("Worker must be specified");
       }
 
-      if (!cb && "function" === typeof fd) {
-        cb = fd;
-        fd = null;
+      var canSend = ["listening", "online"].indexOf(worker.state) > -1;
+
+      if (!canSend && fd) {
+        throw new Error("You tried to send an FD to a worker that isn't online yet." +
+          "Whilst ordinarily I'd be happy to queue messages for you, deferring sending a descriptor could " +
+          "cause strange behavior in your application.");
       }
 
-      var workerData = getWorkerData(worker);
+      var workerData = getWorkerData(worker),
+          seq = workerData.seq++,
+          api = constructMessageApi(namespace, seq);
 
-      if (["listening", "online"].indexOf(worker.state) === -1) {
-        if (fd) {
-          throw new Error("You tried to send an FD to a worker that isn't online yet." +
-            "Whilst ordinarily I'd be happy to queue messages for you, deferring sending a descriptor could " +
-            "cause strange behavior in your application.");
-        }
-        debug("Queueing message to " + worker.id);
+      workerData.pending[seq] = [api[1], api[2]];
 
-        return new Promise(function(resolve, reject) {
-          workerData.queued.push({
-            cmd: cmd,
-            payload: payload,
-            resolve: resolve,
-            reject: reject
-          });
-        }).nodeify(cb);
-      }
-
-      var seq = workerData.seq++;
-
-      debug("Sending message sequence " + seq + " " + cmd + " to worker " + worker.id);
-
-      var promise = new Promise(function(resolve, reject) {
-        var message = {
+      if (canSend) {
+        debug("Sending message sequence " + seq + " " + cmd + " to worker " + worker.id);
+        worker.send({
           __clusterphone: {
             ns: namespaceName,
             cmd: cmd,
             seq: seq,
             payload: payload
           }
-        };
+        }, fd);
+      } else {
+        debug("Queueing message to " + worker.id);
 
-        workerData.pending[seq] = [resolve, reject];
+        workerData.queued.push({
+          cmd: cmd,
+          seq: seq,
+          payload: payload,
+          api: api
+        });
+      }
 
-        worker.send(message, fd);
-      });
-
-      return promise.timeout(module.exports.ackTimeout)
-        .catch(Promise.TimeoutError, function() {
-          delete workerData.pending[seq];
-          if (!module.exports.ignoreAckTimeouts) {
-            throw new Error("Timed out waiting for acknowledgement.");
-          } else {
-            return blackholePromise;
-          }
-        })
-        .nodeify(cb);
+      return api[0];
     };
 
     var sendQueued = function(worker) {
       var data = getWorkerData(worker);
       while(data.queued.length) {
         var item = data.queued.shift();
-        item.resolve(sendTo(worker, item.cmd, item.payload, undefined));
+
+        worker.send({
+          __clusterphone: {
+            ns: namespaceName,
+            cmd: item.cmd,
+            seq: item.seq,
+            payload: item.payload
+          }
+        });
       }
     };
 
+    // TODO: re-enable me.
     // var cleanPending = function(worker) {
     //   var data = getWorkerData(worker);
 
@@ -269,39 +311,24 @@ function namespaced(namespaceName) {
       return pending;
     };
 
-    var sendToMaster = function(cmd, payload, fd, cb) {
-      if (!cb && "function" === typeof fd) {
-        cb = fd;
-        fd = null;
-      }
+    var sendToMaster = function(cmd, payload, fd) {
+      var seq = seqCounter++,
+          api = constructMessageApi(namespace, seq);
 
-      var seq = seqCounter++;
-      var message = {
+      debug("Sending message sequence " + seq + " " + cmd + " to master.");
+
+      pendings[seq] = [api[1], api[2]];
+
+      process.send({
         __clusterphone: {
           ns: namespaceName,
           seq: seq,
           cmd: cmd,
           payload: payload
         }
-      };
+      }, fd);
 
-      debug("Sending message sequence " + seq + " " + cmd + " to master.");
-
-      var promise = new Promise(function(resolve, reject) {
-        pendings[seq] = [resolve, reject];
-      });
-
-      process.send(message, fd);
-      return promise.timeout(module.exports.ackTimeout)
-        .catch(Promise.TimeoutError, function() {
-          delete pendings[seq];
-          if (!module.exports.ignoreAckTimeouts) {
-            throw new Error("Timed out waiting for acknowledgement.");
-          } else {
-            return blackholePromise;
-          }
-        })
-        .nodeify(cb);
+      return api[0];
     };
 
     namespace.interface.handlers = {};
@@ -314,4 +341,3 @@ function namespaced(namespaceName) {
 module.exports = namespaced("_");
 module.exports.ns = namespaced;
 module.exports.ackTimeout = 5 * 60 * 1000;  // 5 minutes by default.
-module.exports.ignoreAckTimeouts = false;
