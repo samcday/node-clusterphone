@@ -77,11 +77,15 @@ For example, the following code will error:
         // Deliberately not acknowledging message here
     }
 
-This will result in slightly weird behaviour unfortunately - the acknowledgement handler will fail after the default timeout of 5 minutes. You can change the timeout on a per message ack handler basis with a fluent API:
+This will result in slightly weird behaviour unfortunately - the acknowledgement handler will fail after the default timeout of 30 seconds. You can change the timeout on a per message ack handler basis with a fluent API...
 
     clusterphone.sendTo(worker, "hello").within(5000 /* milliseconds */).ackd(function(err, reply) {
         // err will be a timeout error if remote end does not acknowledge within 5 seconds.
     })
+
+... or you can change it globally.
+
+    clusterphone.ackTimeout = 123;  // milliseconds
 
 Acknowledgement handlers can be fired with an error if the remote end is a worker that died before acknowledging the message.
 
