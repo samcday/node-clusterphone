@@ -360,4 +360,32 @@ describe("clusterphone", function() {
       expect(reply).to.deep.equal({secret: {bar: "quux"}});
     });
   });
+
+  it("handler errors propagate back and fail acknowledged", function() {
+    var worker = spawnWorker("standard");
+
+    return clusterphone.sendTo(worker, "fail").ackd()
+      .then(function() {
+        throw new Error("I shouldn't be called.");
+      })
+      .catch(function(err) {
+        expect(err.message).to.match(/message handler threw an error/i);
+        expect(err.origStack).to.exist;
+        expect(err.origMessage).to.equal("EXPLOSIONS!");
+      });
+  });
+
+  it("handler explicit rejections propagate back and fail acknowledged", function() {
+    var worker = spawnWorker("standard");
+
+    return clusterphone.sendTo(worker, "reject").ackd()
+      .then(function() {
+        throw new Error("I shouldn't be called.");
+      })
+      .catch(function(err) {
+        expect(err.message).to.match(/message handler threw an error/i);
+        expect(err.origStack).to.exist;
+        expect(err.origMessage).to.equal("EXPLOSIONS!");
+      });
+  });
 });

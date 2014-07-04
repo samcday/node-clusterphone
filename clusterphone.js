@@ -82,7 +82,12 @@ function messageHandler(message, fd) {
       return;
     }
     if (message.error) {
-      return pending[1](new Error(message.error));
+      var error = new Error(message.error.msg ? message.error.msg : message.error);
+      if (message.error.msg) {
+        error.origMessage = message.error.origMessage;
+        error.origStack = message.error.origStack;
+      }
+      return pending[1](error);
     }
     return pending[0](message.reply);
   }
@@ -111,6 +116,11 @@ function messageHandler(message, fd) {
   }).catch(function(err) {
     debug("Caught error when running " + cmd + " handler.");
     debug(err);
+    sendAck.call(self, nsName, seq, null, {
+      msg: "Message handler threw an error",
+      origMessage: err.message,
+      origStack: err.stack.split("\n").slice(1).join("\n")
+    });
   });
 };
 
@@ -242,12 +252,12 @@ function namespaced(namespaceName) {
 
       cmd = cmd ? String(cmd) : cmd;
       if (!cmd) {
-        throw new Error("Command is required.");
+        throw new TypeError("Command is required.");
       }
 
       var canSend = ["listening", "online"].indexOf(worker.state) > -1;
       if (!canSend && fd) {
-        throw new Error("You tried to send an FD to a worker that isn't online yet." +
+        throw new TypeError("You tried to send an FD to a worker that isn't online yet." +
           "Whilst ordinarily I'd be happy to queue messages for you, deferring sending a descriptor could " +
           "cause strange behavior in your application.");
       }
@@ -332,7 +342,7 @@ function namespaced(namespaceName) {
 
       cmd = cmd ? String(cmd) : cmd;
       if (!cmd) {
-        throw new Error("Command is required.");
+        throw new TypeError("Command is required.");
       }
 
       debug("Sending message sequence " + seq + " " + cmd + " to master.");
