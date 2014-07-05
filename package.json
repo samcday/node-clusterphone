@@ -20,7 +20,8 @@
   },
   "scripts": {
     "pretest": "rm -rf coverage/ && cd test/worker-behaviors/older-version; npm install",
-    "test": "istanbul test _mocha -- test/test.js"
+    "test": "istanbul test _mocha -- test/test.js",
+    "coverage-report": "istanbul report --dir coverage/combined lcovonly **/coverage.json"
   },
   "repository": {
     "type": "git",
