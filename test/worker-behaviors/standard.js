@@ -3,6 +3,8 @@
 var clusterphone = require("../../clusterphone"),
     Promise = require("bluebird");
 
+var expect = require("chai").expect;
+
 clusterphone.handlers.ack = function() {
   return Promise.resolve("recv");
 };
@@ -49,4 +51,23 @@ clusterphone.handlers.fail = function() {
 
 clusterphone.handlers.reject = function() {
   return Promise.reject(new Error("EXPLOSIONS!"));
+};
+
+clusterphone.handlers.doubleAck = function(data, fd, ack) {
+  ack();
+
+  expect(function() {
+    ack();
+  }).to.throw(/callback invoked twice/i);
+  clusterphone.sendToMaster("doubleAckReply");
+};
+
+clusterphone.handlers.cbThenPromise = function(data, fd, ack) {
+  ack("correct");
+  return Promise.resolve("incorrect.");
+};
+
+clusterphone.handlers.ackThenError = function(data, fd, ack) {
+  ack("correct");
+  throw new Error("KABOOOOOM!");
 };

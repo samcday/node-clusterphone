@@ -262,6 +262,36 @@ describe("clusterphone", function() {
       });
   });
 
+  it("errors on double acks correctly", function() {
+    var worker = spawnWorker("standard");
+
+    var promise = new Promise(function(resolve) {
+      clusterphone.handlers.doubleAckReply = function() {
+        resolve();
+      };
+    });
+
+    return clusterphone.sendTo(worker, "doubleAck").ackd().then(function() {
+      return promise;
+    });
+  });
+
+  it("ignores returned Promise if node ack is invoked", function() {
+    var worker = spawnWorker("standard");
+
+    return clusterphone.sendTo(worker, "cbThenPromise").ackd().then(function(reply) {
+      expect(reply).to.equal("correct");
+    });
+  });
+
+  it("ignores errors thrown after acknowledgement is invoked", function() {
+    var worker = spawnWorker("standard");
+
+    return clusterphone.sendTo(worker, "ackThenError").ackd().then(function(reply) {
+      expect(reply).to.equal("correct");
+    });
+  });
+
   it("respects explicit timeout properly", function() {
     var clock;
 
@@ -396,10 +426,7 @@ describe("clusterphone", function() {
     });
   });
 
-  // TODO: reenable when backwards incompat change has a released version
-  // we can depend on.
-
-  xit("older versions of library does not overwrite globals", function() {
+  it("newer version overrides older one", function() {
     var worker = spawnWorker("older-version");
 
     return clusterphone.sendTo(worker, "version").ackd().then(function(reply) {
@@ -407,7 +434,15 @@ describe("clusterphone", function() {
     });
   });
 
-  xit("older versions of library receives messages and sends acks correctly", function() {
+  it("older versions of library does not overwrite globals", function() {
+    var worker = spawnWorker("older-version/newer-first");
+
+    return clusterphone.sendTo(worker, "version").ackd().then(function(reply) {
+      expect(reply).to.deep.equal(require("../package").version);
+    });
+  });
+
+  it("older versions of library receives and acks messages correctly", function() {
     var worker = spawnWorker("older-version");
 
     return clusterphone.sendTo(worker, "echo", {bar: "quux"}).ackd().then(function(reply) {
@@ -415,7 +450,7 @@ describe("clusterphone", function() {
     });
   });
 
-  xit("older versions of library sends messages and receives acks correctly", function() {
+  it("older versions of library sends messages and receives acks correctly", function() {
     var worker = spawnWorker("older-version");
 
     var pongData;
@@ -429,7 +464,7 @@ describe("clusterphone", function() {
     });
   });
 
-  xit("older version in custom namespace receives messages correctly", function() {
+  it("older version in custom namespace receives messages correctly", function() {
     return spawnWorkerAndWait("older-version").then(function(worker) {
       return clusterphone.ns("secret").sendTo(worker, "echo", {bar: "quux"}).ackd().then(function(reply) {
         expect(reply).to.deep.equal({secret: {bar: "quux"}});
@@ -437,9 +472,7 @@ describe("clusterphone", function() {
     });
   });
 
-  // TODO: we changed the way queueing works in a backwards incompatible fashion.
-  // We-enable this test when 0.1.0-3 is cut.
-  xit("older version in custom namespace receives queued messages correctly", function() {
+  it("older version in custom namespace receives queued messages correctly", function() {
     var worker = spawnWorker("older-version");
 
     return clusterphone.ns("secret").sendTo(worker, "echo", {bar: "quux"}).ackd().then(function(reply) {

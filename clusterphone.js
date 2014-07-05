@@ -20,6 +20,7 @@ if (!clusterphone) {
   };
   namespaces = clusterphone.namespaces;
 
+  /* istanbul ignore if */
   if ("undefined" !== typeof global.Symbol) {
     clusterphone.workerDataAccessor = Symbol();
   }
@@ -86,15 +87,18 @@ function messageHandler(message, fd) {
   if (ackNum) {
     debug("Handling ack for seq " + ackNum);
     var pending = namespace.getPending.call(this, ackNum);
-    /* istanbul ignore next */
+
+    /* istanbul ignore if */
     if (!pending) {
       debug("Got an ack for a message that wasn't pending.");
       return;
     }
-    /* istanbul ignore next */
+
+    /* istanbul ignore if */
     if (!pending[0].monitored) {
       return;
     }
+
     if (message.error) {
       var error = new Error(message.error.msg ? message.error.msg : message.error);
       if (message.error.msg) {
@@ -121,10 +125,35 @@ function messageHandler(message, fd) {
     args.unshift(this);
   }
 
-  var handlerPromise = new Promise(function(resolve) {
-    args.push(resolve);
-    var result = handler.apply(null, args);
+  var handlerPromise = new Promise(function(resolve, reject) {
+    var ackSent = false,
+        result;
+
+    var acknowledge = function(reply) {
+      if (ackSent) {
+        throw new Error("Acknowledgement callback invoked twice from handler for " + cmd + ". Sounds like a bug in your handler.");
+      }
+      ackSent = true;
+      resolve(reply);
+    };
+    args.push(acknowledge);
+
+    try {
+      result = handler.apply(null, args);
+    } catch(err) {
+      if (ackSent) {
+        console.log("WARNING: handler for " + cmd + " threw an exception *after* already acknowledging. You have a bug in your handler :)", err.stack);
+      } else {
+        reject(err);
+      }
+      return;
+    }
+
     if (result && "function" === typeof result.then) {
+      if (ackSent) {
+        console.log("WARNING: Handler for " + cmd + " invoked node-style acknowledgement callback, but then returned a promise. Ignoring the promise.");
+        return;
+      }
       resolve(result);
     }
   });
@@ -146,9 +175,10 @@ function messageHandler(message, fd) {
 
 // If we're the first clusterphone to initialise, OR we're a newer version than
 // the one that has already initialised, we use our message handler impl.
+/* istanbul ignore else */ // <--- there is no else path, istanbul thinks there is. Bug?
 if (!clusterphone.version || semver.gt(pkg.version, clusterphone.version)) {
   if (clusterphone.version) {
-    debug("Older version of clusterphone messageHandler being replaced by " + pkg.version);
+    debug("Older version (" + clusterphone.version + ") of clusterphone messageHandler being replaced by " + pkg.version);
   }
   clusterphone.version = pkg.version;
   clusterphone.messageHandler = messageHandler;
@@ -210,6 +240,7 @@ function constructMessageApi(namespace, seq) {
 
 // Gets our private data section from a worker object.
 function getWorkerData(worker) {
+  /* istanbul ignore if */
   if (!worker) {
     throw new TypeError("Trying to get private data for null worker?!");
   }

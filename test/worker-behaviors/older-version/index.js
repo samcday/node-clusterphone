@@ -1,7 +1,6 @@
 "use strict";
 
-// This worker entrypoint will bring in two different versions of clusterphone
-// to test backwards compatibility.
+// This worker entrypoint will bring in two different versions of clusterphone.
 
 var clusterphone = require("clusterphone"),
     Promise = require("bluebird");

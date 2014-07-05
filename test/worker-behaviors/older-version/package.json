@@ -2,6 +2,6 @@
   "name": "older-version",
   "private": true,
   "dependencies": {
-    "clusterphone": "0.1.0-1"
+    "clusterphone": "0.1.0-4"
   }
 }
