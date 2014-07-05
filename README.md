@@ -25,10 +25,69 @@ Handle messages from master in your worker:
         console.log(payload.key); // --> "value"
     };
 
-Just like with the underlying Node.js `cluster` IPC messaging tools, you can send file descriptors to the remote. This can be done from both workers and master.
 
+## Sending messages
+
+### Master -> Worker
+
+Sending messages from your master to a worker is easy.
+
+    var worker = cluster.fork();
+    clusterphone.sendTo(worker, "foo", {key: "value"}, optionalFileDescriptor);
+
+clusterphone will transparently queue your messages if the worker is still starting up and not yet ready to receive them.
+
+### Worker -> Master
+
+Sending a message from your worker to the master is also easy!
+
+    clusterphone.sendToMaster("foo", {key: "value"}, optionalFileDescriptor);
+
+
+## Receiving
+
+Receiving messages on the other end is simple: just attach a handler to `clusterphone.handlers`. Here's some examples.
+
+### Worker
+
+    clusterphone.handlers.foo = function(data, fd) {
+        // ...
+    }
+
+### Master
+
+The master is mostly the same, except the first argument will be the worker that the message originated from.
+
+    clusterphone.handlers.foo = function(worker, data, fd) {
+        // ...
+    }
+
+
+## Sending Descriptors
+
+Just like with the underlying Node.js `cluster` IPC messaging tools, you can send file descriptors to the other end. This can be done from both workers and master.
+
+    // From a worker.
     var connection = net.createConnection({host: "google.com", port: 80});
     clusterphone.sendToMaster("socket", {}, connection);
+
+    // From master.
+    var worker = cluster.fork();
+    var connection = net.createConnection({host: "google.com", port: 80});
+    worker.on("online", function() {
+        clusterphone.sendTo(worker, "socket", {}, connection);
+    });
+
+### Queueing and sending descriptors
+
+Note how in the case of the master we waited until it was online before sending it a descriptor. If you try to send a message with a descriptor to a worker that is not yet ready, _clusterphone will be default throw an Error preventing you from doing this_. This is because sending descriptors results in the immediate removal of underlying handle, but if the message is queued this will not happen until some undetermined later stage. If you're sure you know what you're doing, you can do this:
+
+    // From master.
+    var worker = cluster.fork();
+    var connection = net.createConnection({host: "google.com", port: 80});
+    clusterphone.sendTo(worker, "socket", {}, connection, true); // Pass true as the last argument to force clusterphone to queue up your message along with the descriptor.
+
+You must ensure you don't try and do anything more with the descriptor once you've opted to send it though.
 
 
 ## Replies

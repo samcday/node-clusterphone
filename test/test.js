@@ -25,10 +25,14 @@ var spawnWorkerAndWait = function(behavior) {
 };
 
 describe("clusterphone", function() {
+  var server = Promise.promisifyAll(net.createServer());
+
   before(function() {
     cluster.setupMaster({
       exec: __dirname + "/worker-entrypoint.js"
     });
+
+    return server.listenAsync();
   });
 
   afterEach(function() {
@@ -40,6 +44,12 @@ describe("clusterphone", function() {
     Object.keys(clusterphone.handlers).forEach(function(handler) {
       delete clusterphone.handlers[handler];
     });
+
+    server.removeAllListeners();
+  });
+
+  after(function() {
+    server.close();
   });
 
   it("default namespace is _", function() {
@@ -60,7 +70,7 @@ describe("clusterphone", function() {
         clusterphone.sendTo(worker, "resurrect");
       }).to.throw(/worker is dead/i);
       done();
-    })
+    });
   });
 
   it("master refuses to dispatch an empty or null command", function() {
@@ -88,27 +98,45 @@ describe("clusterphone", function() {
   });
 
   it("sends descriptors correctly", function() {
-    var server = Promise.promisifyAll(net.createServer()),
-        client;
-
-    after(function() {
-      server.close();
-    });
-
     var deferred = Promise.defer();
-    server.on("connection", function(c) {
+    server.once("connection", function(c) {
       c.on("data", function(data) {
         expect(data.toString()).to.eql("hello");
         deferred.resolve();
       });
     });
 
-    return server.listenAsync().then(function() {
-      client = net.createConnection(server.address().port);
-      return spawnWorkerAndWait("standard");
-    }).then(function(worker) {
+    var client = net.createConnection(server.address().port);
+
+    spawnWorkerAndWait("standard").then(function(worker) {
       return clusterphone.sendTo(worker, "server", {}, client).ackd();
     }).then(function() {
+      return deferred.promise;
+    });
+  });
+
+  it("refuses to queue filedescriptors to a worker", function() {
+    var worker = spawnWorker("standard");
+
+    expect(function() {
+      var client = net.createConnection(server.address().port);
+      clusterphone.sendTo(worker, "foo", {}, client);
+    }).to.throw(/tried to send an FD/);
+  });
+
+  it("will queue file descriptor if forced to.", function() {
+    var client = net.createConnection(server.address().port);
+    var worker = spawnWorker("standard");
+
+    var deferred = Promise.defer();
+    server.once("connection", function(c) {
+      c.on("data", function(data) {
+        expect(data.toString()).to.eql("hello");
+        deferred.resolve();
+      });
+    });
+
+    return clusterphone.sendTo(worker, "server", {}, client, true).ackd().then(function() {
       return deferred.promise;
     });
   });
@@ -298,10 +326,11 @@ describe("clusterphone", function() {
   });
 
   it("correctly sends messages to master from worker", function() {
-    spawnWorker("send");
+    var worker = spawnWorker("send");
 
     return new Promise(function(resolve) {
-      clusterphone.handlers.foo = function(data) {
+      clusterphone.handlers.foo = function(fromWorker, data) {
+        expect(fromWorker).to.eql(worker);
         expect(data.bar).to.eql("quux");
         resolve();
       };
@@ -316,7 +345,7 @@ describe("clusterphone", function() {
     };
 
     return new Promise(function(resolve) {
-      clusterphone.handlers.gotack = function(ackReply) {
+      clusterphone.handlers.gotack = function(worker, ackReply) {
         expect(ackReply).to.eql("ok");
         resolve();
       };
@@ -343,7 +372,7 @@ describe("clusterphone", function() {
     var worker = spawnWorker("older-version");
 
     var pongData;
-    clusterphone.handlers.pong = function(data) {
+    clusterphone.handlers.pong = function(worker, data) {
       pongData = data;
       return Promise.resolve();
     };

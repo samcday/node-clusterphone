@@ -102,8 +102,14 @@ function messageHandler(message, fd) {
     return sendAck.call(this, nsName, seq, null, "Unhandled message type");
   }
 
+  var args = [message.payload, fd];
+  if (this !== process) {
+    args.unshift(this);
+  }
+
   var handlerPromise = new Promise(function(resolve) {
-    var result = handler(message.payload, fd, resolve);
+    args.push(resolve);
+    var result = handler.apply(null, args);
     if (result && "function" === typeof result.then) {
       resolve(result);
     }
@@ -117,7 +123,7 @@ function messageHandler(message, fd) {
     debug("Caught error when running " + cmd + " handler.");
     debug(err);
     sendAck.call(self, nsName, seq, null, {
-      msg: "Message handler threw an error",
+      msg: "Message handler threw an error: " + err.message,
       origMessage: err.message,
       origStack: err.stack.split("\n").slice(1).join("\n")
     });
@@ -241,7 +247,7 @@ function namespaced(namespaceName) {
       return pending;
     };
 
-    var sendTo = function(worker, cmd, payload, fd) {
+    var sendTo = function(worker, cmd, payload, fd, forceSendFD) {
       if (!worker) {
         throw new TypeError("Worker must be specified");
       }
@@ -256,8 +262,8 @@ function namespaced(namespaceName) {
       }
 
       var canSend = ["listening", "online"].indexOf(worker.state) > -1;
-      if (!canSend && fd) {
-        throw new TypeError("You tried to send an FD to a worker that isn't online yet." +
+      if (!canSend && fd && forceSendFD !== true) {
+        throw new TypeError("You tried to send an FD to a worker that isn't online yet. " +
           "Whilst ordinarily I'd be happy to queue messages for you, deferring sending a descriptor could " +
           "cause strange behavior in your application.");
       }
@@ -285,7 +291,8 @@ function namespaced(namespaceName) {
           cmd: cmd,
           seq: seq,
           payload: payload,
-          api: api
+          api: api,
+          fd: fd
         });
       }
 
@@ -304,7 +311,7 @@ function namespaced(namespaceName) {
             seq: item.seq,
             payload: item.payload
           }
-        });
+        }, item.fd);
       }
     };
 
