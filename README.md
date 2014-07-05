@@ -122,7 +122,7 @@ The `acknowledged()` method also has a shorthand form of `ackd()`.
 
 ### Replies and timeouts
 
-Note that when opting into receiving acknowledgements after dispatching a method, you're indicating that you're expecting a reply. If a reply is not received before a configurable timeout, then the callback/Promise will be invoked with a timeout error.
+Note that when opting into receiving acknowledgements after dispatching a method, you're indicating that you're expecting a reply. If a reply is not received before a configurable (default *10 seconds*) timeout, then the callback/Promise will be invoked with a timeout error.
 
 For example, the following code will error:
 

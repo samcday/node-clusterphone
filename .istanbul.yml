@@ -1,0 +1,6 @@
+instrumentation:
+  compact: false
+reporting:
+  reports:
+    - json
+  dir: coverage/master

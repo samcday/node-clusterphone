@@ -1,8 +1,9 @@
 "use strict";
 
-var clusterphone = require("../../clusterphone"),
-    Promise = require("bluebird");
+var clusterphone = require("../../clusterphone");
 
 clusterphone.sendToMaster("foo", { bar: "quux" }).ackd().then(function(reply) {
-  clusterphone.sendToMaster("gotack", reply).ackd();
+  if (reply) {
+    clusterphone.sendToMaster("gotack", reply).ackd();
+  }
 });

@@ -6,8 +6,6 @@ var Promise = require("bluebird"),
     clusterphone = require("../clusterphone"),
     sinon = require("sinon");
 
-// TODO: test prevented access to "clusterphone" NS name.
-
 var expect = require("chai").expect;
 
 Promise.onPossiblyUnhandledRejection(function(e) {
@@ -50,12 +48,22 @@ describe("clusterphone", function() {
   });
 
   afterEach(function(done) {
+    var isDone = false;
     // Forcibly stop all workers.
-    cluster.disconnect(done);
+    cluster.disconnect(function() {
+      isDone = true;
+      done();
+    });
 
-    // Object.keys(cluster.workers).forEach(function(workerId) {
-    //   cluster.workers[workerId].kill();
-    // });
+    setTimeout(function() {
+      if (isDone) {
+        return;
+      }
+      Object.keys(cluster.workers).forEach(function(workerId) {
+        cluster.workers[workerId].kill();
+      });
+      done();
+    }, 1000);
 
     Object.keys(clusterphone.handlers).forEach(function(handler) {
       delete clusterphone.handlers[handler];
@@ -70,6 +78,24 @@ describe("clusterphone", function() {
 
   it("default namespace is _", function() {
     expect(clusterphone.name).to.eql("_");
+  });
+
+  it("forbids access to 'clusterphone' namespace", function() {
+    expect(function() {
+      clusterphone.ns("clusterphone");
+    }).to.throw(/is private/);
+  });
+
+  it("fails on empty namespace name.", function() {
+    expect(function() {
+      clusterphone.ns("");
+    }).to.throw(/name is required/i);
+  });
+
+  it("does not create duplicate namespaces", function() {
+    var ns1 = clusterphone.ns("dupetest");
+    var ns2 = clusterphone.ns("dupetest");
+    expect(ns1).to.eql(ns2);
   });
 
   it("refuses to dispatch to null worker", function() {
@@ -349,6 +375,7 @@ describe("clusterphone", function() {
         expect(fromWorker).to.eql(worker);
         expect(data.bar).to.eql("quux");
         resolve();
+        return Promise.resolve();
       };
     });
   });
@@ -364,11 +391,15 @@ describe("clusterphone", function() {
       clusterphone.handlers.gotack = function(worker, ackReply) {
         expect(ackReply).to.eql("ok");
         resolve();
+        return Promise.resolve();
       };
     });
   });
 
-  it("older versions of library does not overwrite globals", function() {
+  // TODO: reenable when backwards incompat change has a released version
+  // we can depend on.
+
+  xit("older versions of library does not overwrite globals", function() {
     var worker = spawnWorker("older-version");
 
     return clusterphone.sendTo(worker, "version").ackd().then(function(reply) {
@@ -376,7 +407,7 @@ describe("clusterphone", function() {
     });
   });
 
-  it("older versions of library receives messages and sends acks correctly", function() {
+  xit("older versions of library receives messages and sends acks correctly", function() {
     var worker = spawnWorker("older-version");
 
     return clusterphone.sendTo(worker, "echo", {bar: "quux"}).ackd().then(function(reply) {
@@ -384,7 +415,7 @@ describe("clusterphone", function() {
     });
   });
 
-  it("older versions of library sends messages and receives acks correctly", function() {
+  xit("older versions of library sends messages and receives acks correctly", function() {
     var worker = spawnWorker("older-version");
 
     var pongData;
@@ -398,7 +429,7 @@ describe("clusterphone", function() {
     });
   });
 
-  it("older version in custom namespace receives messages correctly", function() {
+  xit("older version in custom namespace receives messages correctly", function() {
     return spawnWorkerAndWait("older-version").then(function(worker) {
       return clusterphone.ns("secret").sendTo(worker, "echo", {bar: "quux"}).ackd().then(function(reply) {
         expect(reply).to.deep.equal({secret: {bar: "quux"}});

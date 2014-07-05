@@ -36,7 +36,7 @@ clusterphone.handlers.ackFiltered = function(data) {
 };
 
 clusterphone.handlers.exit = function() {
-    process.exit();
+    require("cluster").worker.kill();
 };
 
 clusterphone.handlers.noAck = function() {

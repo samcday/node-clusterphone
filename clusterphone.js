@@ -58,6 +58,7 @@ function sendAck(namespaceId, seq, reply, error) {
 function messageHandler(message, fd) {
   /*jshint validthis:true */
 
+  /* istanbul ignore if */
   if (!message || !message.__clusterphone) {
     return;
   }
@@ -71,6 +72,7 @@ function messageHandler(message, fd) {
   if (!nsName || !namespaces.hasOwnProperty(nsName)) {
     debug("Got a message for unknown namespace '" + nsName + "'.");
 
+    /* istanbul ignore if */
     if (ackNum) {
       debug("Nonsensical: getting an ack for a namespace we don't know about.");
       return;
@@ -84,10 +86,12 @@ function messageHandler(message, fd) {
   if (ackNum) {
     debug("Handling ack for seq " + ackNum);
     var pending = namespace.getPending.call(this, ackNum);
+    /* istanbul ignore next */
     if (!pending) {
       debug("Got an ack for a message that wasn't pending.");
       return;
     }
+    /* istanbul ignore next */
     if (!pending[0].monitored) {
       return;
     }
@@ -383,14 +387,28 @@ function namespaced(namespaceId) {
 
       pendings[seq] = [api[1], api[2]];
 
-      process.send({
-        __clusterphone: {
-          ns: namespaceId,
-          seq: seq,
-          cmd: cmd,
-          payload: payload
-        }
-      }, fd);
+      try {
+        process.send({
+          __clusterphone: {
+            ns: namespaceId,
+            seq: seq,
+            cmd: cmd,
+            payload: payload
+          }
+        }, fd);
+      } catch(e) {
+        debug("Failed to send " + cmd + " in NS " + namespaceId + " to master.");
+        debug(e);
+        // We don't want to throw this synchronously. That's mean.
+        // Instead we'll wait a tick and see if they registered an ack handler
+        // for it.
+        setImmediate(function() {
+          /* istanbul ignore if */
+          if (api[1].monitored) {
+            api[2](e);
+          }
+        });
+      }
 
       return api[0];
     };
@@ -419,6 +437,7 @@ if (cluster.isMaster) {
   internalNamespace.handlers.workerReady = function(worker, msg) {
     var targetNsName = msg.targetNs;
 
+    /* istanbul ignore if */
     if (!targetNsName) {
       return;
     }
@@ -437,4 +456,4 @@ if (cluster.isMaster) {
 
 module.exports = defaultNamespace;
 module.exports.ns = namespaced;
-module.exports.ackTimeout = 5 * 60 * 1000;  // 5 minutes by default.
+module.exports.ackTimeout = 10 * 1000;  // 10 seconds by default.

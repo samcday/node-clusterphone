@@ -13,12 +13,13 @@
   },
   "devDependencies": {
     "chai": "^1.9.1",
+    "glob": "^4.0.3",
     "istanbul": "^0.2.16",
     "mocha": "^1.20.1",
     "sinon": "^1.10.2"
   },
   "scripts": {
-    "pretest": "cd test/worker-behaviors/older-version; npm install",
+    "pretest": "rm -rf coverage/ && cd test/worker-behaviors/older-version; npm install",
     "test": "istanbul test _mocha -- test/test.js"
   },
   "repository": {

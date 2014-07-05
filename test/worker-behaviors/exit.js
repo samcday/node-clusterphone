@@ -1,1 +1,1 @@
-process.exit();
+require("cluster").worker.kill();
