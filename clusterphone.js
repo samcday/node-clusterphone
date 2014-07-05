@@ -9,13 +9,20 @@ var cluster = require("cluster"),
 // We initialize ourselves in the global process space. This is so multiple
 // versions of the library can co-exist harmoniously.
 var clusterphone = process.__clusterphone,
-    namespaces;
+    namespaces,
+    internalNamespace,
+    internalNameGuard = 0;  // We use this to prevent callers from obtaining the "clusterphone" namespace.
 
 if (!clusterphone) {
   process.__clusterphone = clusterphone = {
-    namespaces: {}
+    namespaces: {},
+    workerDataAccessor: "__clusterphone",
   };
   namespaces = clusterphone.namespaces;
+
+  if ("undefined" !== typeof global.Symbol) {
+    clusterphone.workerDataAccessor = Symbol();
+  }
 
   // We only want to bind these once, and they dispatch to whatever
   // messageHandler has been set on the clusterphone global.
@@ -34,20 +41,23 @@ if (!clusterphone) {
   namespaces = clusterphone.namespaces;
 }
 
-function sendAck(namespaceName, seq, reply, error) {
+function sendAck(namespaceId, seq, reply, error) {
+  /*jshint validthis:true */
+
   debug("Sending ack for message seq " + seq);
   this.send({
     __clusterphone: {
-      ns: namespaceName,
+      ns: namespaceId,
       ack: seq,
       reply: reply,
       error: error,
     }
   });
-};
+}
 
 function messageHandler(message, fd) {
   /*jshint validthis:true */
+
   if (!message || !message.__clusterphone) {
     return;
   }
@@ -128,7 +138,7 @@ function messageHandler(message, fd) {
       origStack: err.stack.split("\n").slice(1).join("\n")
     });
   });
-};
+}
 
 // If we're the first clusterphone to initialise, OR we're a newer version than
 // the one that has already initialised, we use our message handler impl.
@@ -192,48 +202,56 @@ function constructMessageApi(namespace, seq) {
   api.ackd = api.acknowledged;
 
   return [api, resolve, reject];
-};
+}
 
-function namespaced(namespaceName) {
-  if (!namespaceName) {
+// Gets our private data section from a worker object.
+function getWorkerData(worker) {
+  if (!worker) {
+    throw new TypeError("Trying to get private data for null worker?!");
+  }
+
+  var data = worker[clusterphone.workerDataAccessor];
+  if (!data) {
+    worker[clusterphone.workerDataAccessor] = data = {};
+  }
+
+  return data;
+}
+
+function namespaced(namespaceId) {
+  if (namespaceId === "clusterphone") {
+    if (internalNameGuard === 0) {
+      throw new Error("The 'clusterphone' namespace name is private. Sorry.");
+    }
+    internalNameGuard--;
+  }
+
+  if (!namespaceId) {
     throw new TypeError("Name is required for namespaced messaging.");
   }
 
-  var namespace = namespaces[namespaceName];
+  var namespace = namespaces[namespaceId];
   if (namespace) {
     return namespace.interface;
   }
 
-  debug("Setting up namespace for '" + namespaceName + "'");
+  debug("Setting up namespace for '" + namespaceId + "'");
 
-  namespace = namespaces[namespaceName] = {
+  namespace = namespaces[namespaceId] = {
     interface: {}
   };
-  namespace.interface.name = namespaceName;
+  namespace.interface.name = namespaceId;
 
   if (cluster.isMaster) {
-    var workerDataAccessor = "__clusterphone";
-    if ("undefined" !== typeof global.Symbol) {
-      workerDataAccessor = Symbol();
-    }
-
-    // Gets our private data section from a worker object.
-    var getWorkerData = function(worker) {
-      if (!worker) {
-        throw new TypeError("Trying to get private data for null worker?!");
-      }
-
-      var data = worker[workerDataAccessor];
-      if (!data) {
-        worker[workerDataAccessor] = data = {};
-      }
-
-      var namespacedData = data[namespaceName];
+    var getWorkerNamespacedData = function(worker) {
+      var workerData = getWorkerData(worker);
+      var namespacedData = workerData[namespaceId];
       if (!namespacedData) {
-        data[namespaceName] = namespacedData = {
+        workerData[namespaceId] = namespacedData = {
           seq: 1,
           pending: {},
-          queued: []
+          queued: [],
+          parent: workerData
         };
       }
 
@@ -241,7 +259,7 @@ function namespaced(namespaceName) {
     };
 
     namespace.getPending = function(seq) {
-      var workerData = getWorkerData(this);
+      var workerData = getWorkerNamespacedData(this);
       var pending = workerData.pending[seq];
       delete workerData.pending[seq];
       return pending;
@@ -252,6 +270,8 @@ function namespaced(namespaceName) {
         throw new TypeError("Worker must be specified");
       }
 
+      var workerData = getWorkerNamespacedData(worker);
+
       if (worker.state === "dead") {
         throw new Error("Worker is dead. Can't send message to it.");
       }
@@ -261,15 +281,15 @@ function namespaced(namespaceName) {
         throw new TypeError("Command is required.");
       }
 
-      var canSend = ["listening", "online"].indexOf(worker.state) > -1;
+      var canSend = workerData.parent.isReady;
+
       if (!canSend && fd && forceSendFD !== true) {
         throw new TypeError("You tried to send an FD to a worker that isn't online yet. " +
           "Whilst ordinarily I'd be happy to queue messages for you, deferring sending a descriptor could " +
           "cause strange behavior in your application.");
       }
 
-      var workerData = getWorkerData(worker),
-          seq = workerData.seq++,
+      var seq = workerData.seq++,
           api = constructMessageApi(namespace, seq);
 
       workerData.pending[seq] = [api[1], api[2]];
@@ -278,14 +298,14 @@ function namespaced(namespaceName) {
         debug("Sending message sequence " + seq + " " + cmd + " to worker " + worker.id);
         worker.send({
           __clusterphone: {
-            ns: namespaceName,
+            ns: namespaceId,
             cmd: cmd,
             seq: seq,
             payload: payload
           }
         }, fd);
       } else {
-        debug("Queueing message to " + worker.id);
+        debug("Queueing message " + cmd + " to worker #" + worker.id);
 
         workerData.queued.push({
           cmd: cmd,
@@ -299,25 +319,33 @@ function namespaced(namespaceName) {
       return api[0];
     };
 
-    var sendQueued = function(worker) {
-      var data = getWorkerData(worker);
+    namespace.workerReady = function(worker) {
+      var data = getWorkerNamespacedData(worker);
+      data.parent.isReady = true;
+
+      if (data.queued.length) {
+        debug("We have messages in " + namespaceId + " queued for worker " + worker.id + ". Sending them now.");
+      }
+
       while(data.queued.length) {
         var item = data.queued.shift();
 
         worker.send({
           __clusterphone: {
-            ns: namespaceName,
+            ns: namespaceId,
             cmd: item.cmd,
             seq: item.seq,
             payload: item.payload
           }
         }, item.fd);
       }
+
+      worker.emit("clusterphone:online");
     };
 
     // If a worker dies, fail any monitored ack deferreds.
     var cleanPending = function(worker) {
-      var data = getWorkerData(worker);
+      var data = getWorkerNamespacedData(worker);
 
       Object.keys(data.pending).forEach(function(seqNum) {
         var item = data.pending[seqNum];
@@ -328,7 +356,6 @@ function namespaced(namespaceName) {
       });
     };
 
-    cluster.on("online", sendQueued);
     cluster.on("disconnect", cleanPending);
 
     namespace.interface.handlers = {};
@@ -358,7 +385,7 @@ function namespaced(namespaceName) {
 
       process.send({
         __clusterphone: {
-          ns: namespaceName,
+          ns: namespaceId,
           seq: seq,
           cmd: cmd,
           payload: payload
@@ -368,6 +395,14 @@ function namespaced(namespaceName) {
       return api[0];
     };
 
+    // If this ISN'T the internal namespace, we send a message to master
+    // indicating that we are now ready for any queued messages for this ns.
+    if (namespaceId !== "clusterphone") {
+      internalNamespace.sendToMaster("workerReady", {
+        targetNs: namespaceId
+      });
+    }
+
     namespace.interface.handlers = {};
     namespace.interface.sendToMaster = sendToMaster;
   }
@@ -375,6 +410,31 @@ function namespaced(namespaceName) {
   return namespace.interface;
 }
 
-module.exports = namespaced("_");
+internalNameGuard++;
+internalNamespace = namespaced("clusterphone");
+
+var defaultNamespace = namespaced("_");
+
+if (cluster.isMaster) {
+  internalNamespace.handlers.workerReady = function(worker, msg) {
+    var targetNsName = msg.targetNs;
+
+    if (!targetNsName) {
+      return;
+    }
+
+    var targetNs = namespaces[msg.targetNs];
+
+    if (!targetNs) {
+      debug("WEIRD: worker said it was ready for " + targetNsName + ", but we don't have that namespace.");
+      return;
+    }
+
+    debug("Worker #" + worker.id + " is ready to receive messages for " + targetNsName);
+    targetNs.workerReady(worker);
+  };
+}
+
+module.exports = defaultNamespace;
 module.exports.ns = namespaced;
 module.exports.ackTimeout = 5 * 60 * 1000;  // 5 minutes by default.

@@ -2,5 +2,6 @@
 .jshintrc
 .npmignore
 .travis.yml
+coverage/
 test/
 LICENSE

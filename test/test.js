@@ -6,6 +6,8 @@ var Promise = require("bluebird"),
     clusterphone = require("../clusterphone"),
     sinon = require("sinon");
 
+// TODO: test prevented access to "clusterphone" NS name.
+
 var expect = require("chai").expect;
 
 Promise.onPossiblyUnhandledRejection(function(e) {
@@ -20,7 +22,7 @@ var spawnWorker = function(behavior) {
 var spawnWorkerAndWait = function(behavior) {
   return new Promise(function(resolve) {
     var worker = spawnWorker(behavior);
-    worker.on("online", resolve.bind(null, worker));
+    worker.on("clusterphone:online", resolve.bind(null, worker));
   });
 };
 
@@ -28,18 +30,32 @@ describe("clusterphone", function() {
   var server = Promise.promisifyAll(net.createServer());
 
   before(function() {
+    // If we're running under istanbul, we change entrypoint to be istanbul
+    // and make sure each worker gets a different directory for coverage.
+    var exec = __dirname + "/worker-entrypoint.js";
+    var args = [];
+
+    if (process.env.npm_config_coverage) {
+      console.log("Running with coverage instrumentation");
+      args = ["test", "--config", __dirname + "/worker-istanbul-config.js", exec];
+      exec = __dirname + "/../node_modules/.bin/istanbul";
+    }
+
     cluster.setupMaster({
-      exec: __dirname + "/worker-entrypoint.js"
+      exec: exec,
+      args: args,
     });
 
     return server.listenAsync();
   });
 
-  afterEach(function() {
+  afterEach(function(done) {
     // Forcibly stop all workers.
-    Object.keys(cluster.workers).forEach(function(workerId) {
-      cluster.workers[workerId].kill();
-    });
+    cluster.disconnect(done);
+
+    // Object.keys(cluster.workers).forEach(function(workerId) {
+    //   cluster.workers[workerId].kill();
+    // });
 
     Object.keys(clusterphone.handlers).forEach(function(handler) {
       delete clusterphone.handlers[handler];
@@ -108,7 +124,7 @@ describe("clusterphone", function() {
 
     var client = net.createConnection(server.address().port);
 
-    spawnWorkerAndWait("standard").then(function(worker) {
+    return spawnWorkerAndWait("standard").then(function(worker) {
       return clusterphone.sendTo(worker, "server", {}, client).ackd();
     }).then(function() {
       return deferred.promise;
@@ -177,7 +193,7 @@ describe("clusterphone", function() {
   it("fails acknowledgement if worker dies before acking", function() {
     var worker = spawnWorker("standard");
     return clusterphone.sendTo(worker, "exit").ackd()
-      .then(function(reply) {
+      .then(function() {
         throw new Error("I shouldn't be called.");
       })
       .catch(function(err) {
@@ -309,7 +325,7 @@ describe("clusterphone", function() {
 
   it("handles unknown namespaces", function() {
     return spawnWorkerAndWait("standard").then(function(worker) {
-      return clusterphone.ns("unknownns").sendTo(worker, "namespaced").ackd().then(function() {
+      return clusterphone.ns("unknowns").sendTo(worker, "namespaced").ackd().then(function() {
         throw new Error("I shouldn't be called.");
       }).error(function(err) {
         expect(err.message).to.match(/unknown namespace/i);
@@ -383,6 +399,16 @@ describe("clusterphone", function() {
   });
 
   it("older version in custom namespace receives messages correctly", function() {
+    return spawnWorkerAndWait("older-version").then(function(worker) {
+      return clusterphone.ns("secret").sendTo(worker, "echo", {bar: "quux"}).ackd().then(function(reply) {
+        expect(reply).to.deep.equal({secret: {bar: "quux"}});
+      });
+    });
+  });
+
+  // TODO: we changed the way queueing works in a backwards incompatible fashion.
+  // We-enable this test when 0.1.0-3 is cut.
+  xit("older version in custom namespace receives queued messages correctly", function() {
     var worker = spawnWorker("older-version");
 
     return clusterphone.ns("secret").sendTo(worker, "echo", {bar: "quux"}).ackd().then(function(reply) {

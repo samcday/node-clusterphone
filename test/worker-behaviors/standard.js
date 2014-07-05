@@ -37,16 +37,16 @@ clusterphone.handlers.ackFiltered = function(data) {
 
 clusterphone.handlers.exit = function() {
     process.exit();
-}
+};
 
 clusterphone.handlers.noAck = function() {
 
-}
+};
 
 clusterphone.handlers.fail = function() {
   throw new Error("EXPLOSIONS!");
-}
+};
 
 clusterphone.handlers.reject = function() {
   return Promise.reject(new Error("EXPLOSIONS!"));
-}
+};
