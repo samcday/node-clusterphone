@@ -165,7 +165,7 @@ When initializing clusterphone, you can opt into a namespace, as was shown in th
 
     var clusterphone = require("clusterphone")("myapp");
 
-If you don't specify a namespace, your messages and handlers will operate in the default "`_`" namespace. If you're writing an app, this should be okay, but if you're using clusterphone in a library you expect others to use, you really *should* specify a namespace.
+If you don't specify a namespace, your messages and handlers will operate in the default "`_`" namespace. If you're writing an app, this should be okay. If you're using clusterphone in a library you expect others to use, you really *should* specify a namespace.
 
 
 ## Contributing
