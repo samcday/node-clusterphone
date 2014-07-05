@@ -15,9 +15,10 @@ deploy:
     secure: N1pXQfcwpMcOexiCDBRXYfQ3WbJP+9RNZZbayb1iNFuhEm50/HxJLdUcV8UInxKkUuS5lSIsWX1KbPKEEtbo6IR5wLTpVUzfYblVmYQI6yoI1XjhcBdYVdlS1uKZUD5ACEfV3Ut112G70XcWks3Drf7/zAuAdvlR3A1mT4E96jQ=
   on:
     tags: true
-    repo: samcday/clusterphone
+    all_branches: true
+    node: 0.10
 
-after_script:
+after_success:
   - "npm run coverage-report"
   - "npm install -g codeclimate-test-reporter"
   - "cat coverage/combined/lcov.info | codeclimate"
