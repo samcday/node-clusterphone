@@ -6,195 +6,22 @@ var cluster = require("cluster"),
     pkg     = require("./package"),
     debug   = require("debug")("clusterphone:" + (cluster.isMaster ? "master" : "worker" + cluster.worker.id));
 
-// We initialize ourselves in the global process space. This is so multiple
-// versions of the library can co-exist harmoniously.
-var clusterphone = process.__clusterphone,
-    namespaces,
-    internalNamespace,
-    internalNameGuard = 0;  // We use this to prevent callers from obtaining the "clusterphone" namespace.
-
-if (!clusterphone) {
-  process.__clusterphone = clusterphone = {
-    namespaces: {},
-    workerDataAccessor: "__clusterphone",
-  };
-  namespaces = clusterphone.namespaces;
-
-  /* istanbul ignore if */
-  if ("undefined" !== typeof global.Symbol) {
-    clusterphone.workerDataAccessor = Symbol();
-  }
-
-  // We only want to bind these once, and they dispatch to whatever
-  // messageHandler has been set on the clusterphone global.
-  if (cluster.isMaster) {
-    cluster.on("fork", function(worker) {
-      worker.on("message", function(message, fd) {
-        clusterphone.messageHandler.call(worker, message, fd);
-      });
-    });
-  } else {
-    process.on("message", function(message, fd) {
-      clusterphone.messageHandler.call(process, message, fd);
-    });
-  }
-} else {
-  namespaces = clusterphone.namespaces;
-}
-
-function sendAck(namespaceId, seq, reply, error) {
-  /* jshint validthis:true */
-
-  debug("Sending ack for message seq " + seq);
-  this.send({
-    __clusterphone: {
-      ns: namespaceId,
-      ack: seq,
-      reply: reply,
-      error: error,
-    }
-  });
-}
-
-function handleAck(ackNum, message, namespace) {
-  /* jshint validthis:true */
-
-  debug("Handling ack for seq " + ackNum);
-  var pending = namespace.getPending.call(this, ackNum);
-
-  /* istanbul ignore if */
-  if (!pending) {
-    debug("Got an ack for a message that wasn't pending.");
-    return;
-  }
-
-  /* istanbul ignore if */
-  if (!pending[0].monitored) {
-    return;
-  }
-
-  if (message.error) {
-    var error = new Error(message.error.msg ? message.error.msg : message.error);
-    if (message.error.msg) {
-      error.origMessage = message.error.origMessage;
-      error.origStack = message.error.origStack;
-    }
-    return pending[1](error);
-  }
-  return pending[0](message.reply);
-}
-
-function fireMessageHandler(nsName, seq, handler, cmd, payload, fd) {
-  /* jshint validthis:true */
-
-  var args = [payload, fd];
-  if (this !== process) {
-    args.unshift(this);
-  }
-
-  var handlerPromise = new Promise(function(resolve, reject) {
-    var ackSent = false,
-        result;
-
-    var acknowledge = function(reply) {
-      if (ackSent) {
-        throw new Error("Acknowledgement callback invoked twice from handler for " + cmd + ". Sounds like a bug in your handler.");
-      }
-      ackSent = true;
-      resolve(reply);
-    };
-    args.push(acknowledge);
-
-    try {
-      result = handler.apply(null, args);
-    } catch(err) {
-      if (ackSent) {
-        console.log("WARNING: handler for " + cmd + " threw an exception *after* already acknowledging. You have a bug in your handler :)", err.stack);
-      } else {
-        reject(err);
-      }
-      return;
-    }
-
-    if (result && "function" === typeof result.then) {
-      if (ackSent) {
-        console.log("WARNING: Handler for " + cmd + " invoked node-style acknowledgement callback, but then returned a promise. Ignoring the promise.");
-        return;
-      }
-      resolve(result);
-    }
-  });
-
-  var self = this;
-
-  handlerPromise.then(function(reply) {
-    sendAck.call(self, nsName, seq, reply);
-  }).catch(function(err) {
-    debug("Caught error when running " + cmd + " handler.");
-    debug(err);
-    sendAck.call(self, nsName, seq, null, {
-      msg: "Message handler threw an error: " + err.message,
-      origMessage: err.message,
-      origStack: err.stack.split("\n").slice(1).join("\n")
-    });
-  });
-}
-
-function messageHandler(message, fd) {
-  /* jshint validthis:true */
-
-  /* istanbul ignore if */
-  if (!message || !message.__clusterphone) {
-    return;
-  }
-
-  message = message.__clusterphone;
-
-  var nsName = message.ns,
-      ackNum = message.ack,
-      seq = message.seq;
-
-  if (!nsName || !namespaces.hasOwnProperty(nsName)) {
-    debug("Got a message for unknown namespace '" + nsName + "'.");
-
-    /* istanbul ignore if */
-    if (ackNum) {
-      debug("Nonsensical: getting an ack for a namespace we don't know about.");
-      return;
-    }
-
-    return sendAck.call(this, nsName, seq, null, "Unknown namespace.");
-  }
-
-  var namespace = namespaces[nsName];
-
-  if (ackNum) {
-    return handleAck.call(this, ackNum, message, namespace);
-  }
-
-  var cmd = message.cmd,
-      handler = namespace.interface.handlers[cmd];
-
-  debug("Handling message seq " + seq + " " + cmd);
-
-  if (!handler) {
-    debug("Got a message I can't handle: " + cmd);
-    return sendAck.call(this, nsName, seq, null, "Unhandled message type");
-  }
-
-  fireMessageHandler.call(this, nsName, seq, handler, cmd, message.payload, fd);
-}
+var clusterphone = require("./nucleus"),
+    messageBus = require("./message-bus");
 
 // If we're the first clusterphone to initialise, OR we're a newer version than
 // the one that has already initialised, we use our message handler impl.
 /* istanbul ignore else */ // <--- there is no else path, istanbul thinks there is. Bug?
 if (!clusterphone.version || semver.gt(pkg.version, clusterphone.version)) {
   if (clusterphone.version) {
-    debug("Older version (" + clusterphone.version + ") of clusterphone messageHandler being replaced by " + pkg.version);
+    debug("Older version (" + clusterphone.version + ") of clusterphone messageBus being replaced by " + pkg.version);
   }
   clusterphone.version = pkg.version;
-  clusterphone.messageHandler = messageHandler;
+  clusterphone.messageBus = messageBus;
 }
+
+var internalNamespace,
+    internalNameGuard = 0;  // We use this to prevent callers from obtaining the "clusterphone" namespace.
 
 // Build the object that we return from sendTo calls.
 function constructMessageApi(namespace, seq) {
@@ -277,14 +104,14 @@ function namespaced(namespaceId) {
     throw new TypeError("Name is required for namespaced messaging.");
   }
 
-  var namespace = namespaces[namespaceId];
+  var namespace = clusterphone.namespaces[namespaceId];
   if (namespace) {
     return namespace.interface;
   }
 
   debug("Setting up namespace for '" + namespaceId + "'");
 
-  namespace = namespaces[namespaceId] = {
+  namespace = clusterphone.namespaces[namespaceId] = {
     interface: {}
   };
   namespace.interface.name = namespaceId;
@@ -485,7 +312,7 @@ if (cluster.isMaster) {
       return;
     }
 
-    var targetNs = namespaces[msg.targetNs];
+    var targetNs = clusterphone.namespaces[msg.targetNs];
 
     if (!targetNs) {
       debug("WEIRD: worker said it was ready for " + targetNsName + ", but we don't have that namespace.");
