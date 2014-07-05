@@ -25,3 +25,4 @@ after_success:
 
 env:
   - npm_config_coverage="1"
+  - DEBUG="clusterphone:*"
