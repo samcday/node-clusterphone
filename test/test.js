@@ -257,7 +257,7 @@ describe("clusterphone", function() {
         throw new Error("I shouldn't be called.");
       })
       .catch(function(err) {
-        expect(err.message).to.match(/timed out/);
+        expect(err.message).to.match(/timed out/i);
         clock.restore();
       });
   });
@@ -310,7 +310,7 @@ describe("clusterphone", function() {
         throw new Error("I shouldn't be called.");
       })
       .catch(function(err) {
-        expect(err.message).to.match(/timed out/);
+        expect(err.message).to.match(/timed out/i);
         clock.restore();
       });
   });

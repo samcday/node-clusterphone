@@ -24,7 +24,7 @@ var internalNamespace,
     internalNameGuard = 0;  // We use this to prevent callers from obtaining the "clusterphone" namespace.
 
 // Build the object that we return from sendTo calls.
-function constructMessageApi(namespace, seq) {
+function constructMessageApi(namespace, cmd, seq) {
   var api = {},
       valid = true,
       timeout = module.exports.ackTimeout,
@@ -64,10 +64,10 @@ function constructMessageApi(namespace, seq) {
     // This flag indicates that the caller does actually care about the resolution of this acknowledgement.
     resolve.monitored = true;
     return promise.timeout(timeout)
-        .catch(Promise.TimeoutError, function(e) {
+        .catch(Promise.TimeoutError, function() {
           // We retrieve the pending here to ensure it's deleted.
           namespace.getPending(seq);
-          throw e;
+          throw new Error("Timed out waiting for acknowledgement for message " + cmd + " in namespace " + namespace.interface.name);
         })
         .nodeify(cb);
   };
@@ -164,7 +164,7 @@ function namespaced(namespaceId) {
       }
 
       var seq = workerData.seq++,
-          api = constructMessageApi(namespace, seq);
+          api = constructMessageApi(namespace, cmd, seq);
 
       workerData.pending[seq] = [api[1], api[2]];
 
@@ -246,7 +246,7 @@ function namespaced(namespaceId) {
 
     var sendToMaster = function(cmd, payload, fd) {
       var seq = seqCounter++,
-          api = constructMessageApi(namespace, seq);
+          api = constructMessageApi(namespace, cmd, seq);
 
       cmd = cmd ? String(cmd) : cmd;
       if (!cmd) {
