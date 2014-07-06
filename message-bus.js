@@ -10,14 +10,23 @@ function sendAck(namespaceId, seq, reply, error) {
   /* jshint validthis:true */
 
   debug("Sending ack for message seq " + seq);
-  this.send({
-    __clusterphone: {
-      ns: namespaceId,
-      ack: seq,
-      reply: reply,
-      error: error,
+  try {
+    this.send({
+      __clusterphone: {
+        ns: namespaceId,
+        ack: seq,
+        reply: reply,
+        error: error,
+      }
+    });
+  } catch(e) {
+    // Swallow errors about channel being closed. Not a lot we can do about that.
+    if (e.message.indexOf("channel closed") > -1) {
+      debug("Looks like other end went away when trying to ack seq " + seq + ".");
+      return;
     }
-  });
+    throw e;
+  }
 }
 
 function handleAck(ackNum, message, namespace) {
@@ -92,11 +101,11 @@ function fireMessageHandler(nsName, seq, handler, cmd, payload, fd) {
   var self = this;
 
   handlerPromise.then(function(reply) {
-    sendAck.call(self, nsName, seq, reply);
+    return sendAck.call(self, nsName, seq, reply);
   }).catch(function(err) {
     debug("Caught error when running " + cmd + " handler.");
     debug(err);
-    sendAck.call(self, nsName, seq, null, {
+    return sendAck.call(self, nsName, seq, null, {
       msg: "Message handler threw an error: " + err.message,
       origMessage: err.message,
       origStack: err.stack.split("\n").slice(1).join("\n")
