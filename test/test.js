@@ -51,8 +51,10 @@ describe("clusterphone", function() {
     var isDone = false;
     // Forcibly stop all workers.
     cluster.disconnect(function() {
-      isDone = true;
-      done();
+      if (!isDone) {
+        isDone = true;
+        done();
+      }
     });
 
     setTimeout(function() {
