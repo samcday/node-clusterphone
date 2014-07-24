@@ -9,6 +9,7 @@
   "dependencies": {
     "bluebird": "^2.1.3",
     "debug": "^1.0.2",
+    "istanbul": "^0.3.0",
     "semver": "^3.0.0"
   },
   "devDependencies": {
@@ -21,7 +22,7 @@
   "scripts": {
     "pretest": "rm -rf coverage/ && cd test/worker-behaviors/older-version; npm install",
     "test": "istanbul test _mocha -- test/test.js",
-    "coverage-report": "istanbul report --dir coverage/combined lcov **/coverage.json"
+    "coverage-report": "istanbul report --dir coverage/combined --include **/coverage.json lcov"
   },
   "repository": {
     "type": "git",

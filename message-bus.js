@@ -21,10 +21,12 @@ function sendAck(namespaceId, seq, reply, error) {
     });
   } catch(e) {
     // Swallow errors about channel being closed. Not a lot we can do about that.
+    /* istanbul ignore next */
     if (e.message.indexOf("channel closed") > -1) {
       debug("Looks like other end went away when trying to ack seq " + seq + ".");
       return;
     }
+    /* istanbul ignore next */
     throw e;
   }
 }
