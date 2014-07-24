@@ -67,7 +67,7 @@ function constructMessageApi(namespace, cmd, destName, seq) {
         .catch(Promise.TimeoutError, function() {
           // We retrieve the pending here to ensure it's deleted.
           namespace.getPending(seq);
-          throw new Error("Timed out waiting for acknowledgement for message " + cmd + " to " + destName + " in namespace " + namespace.interface.name);
+          throw new Error("Timed out waiting for acknowledgement for message " + cmd + " with seq " + seq + " to " + destName + " in namespace " + namespace.interface.name);
         })
         .nodeify(cb);
   };
