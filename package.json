@@ -1,6 +1,6 @@
 {
   "name": "clusterphone",
-  "version": "1.0.0",
+  "version": "1.0.1",
   "description": "Easy-mode messaging between your cluster master and workers.",
   "main": "clusterphone.js",
   "directories": {
