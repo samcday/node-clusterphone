@@ -1,6 +1,6 @@
 # clusterphone
 
-[![Build Status](https://travis-ci.org/samcday/clusterphone.svg?branch=master)](https://travis-ci.org/samcday/clusterphone) [![Dependency Status](https://david-dm.org/samcday/clusterphone.svg)](https://david-dm.org/samcday/clusterphone) [![Code Climate](https://codeclimate.com/github/samcday/clusterphone.png)](https://codeclimate.com/github/samcday/clusterphone) [![Code Climate](https://codeclimate.com/github/samcday/clusterphone/coverage.png)](https://codeclimate.com/github/samcday/clusterphone)
+[![Build Status][badge-travis-img]][badge-travis-url] [![Dependency Status][badge-david-img]][badge-david-url] [![Code Climate][badge-climate-img]][badge-climate-url] [![Code Climate][badge-cov-img]][badge-cov-url]
 
 Easy-mode messaging between your `cluster` master <--> workers.
 
@@ -178,3 +178,12 @@ Tests can be run with the usual `npm test`.
 ## License 
 
 clusterphone is released under the [MIT License](LICENSE).
+
+[badge-travis-img]: https://img.shields.io/travis/samcday/node-clusterphone.svg?style=flat-square
+[badge-travis-url]: https://travis-ci.org/samcday/node-clusterphone
+[badge-david-img]: https://img.shields.io/david/samcday/node-clusterphone.svg?style=flat-square
+[badge-david-url]: https://david-dm.org/samcday/node-clusterphone
+[badge-climate-img]: https://img.shields.io/codeclimate/github/samcday/node-clusterphone.png?style=flat-square
+[badge-climate-url]: https://codeclimate.com/github/samcday/node-clusterphone
+[badge-cov-img]: https://img.shields.io/codeclimate/coverage/github/samcday/node-clusterphone.png?style=flat-square
+[badge-cov-url]: https://codeclimate.com/github/samcday/node-clusterphone
