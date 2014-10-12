@@ -49,13 +49,20 @@ describe("clusterphone", function() {
 
   afterEach(function(done) {
     var isDone = false;
+
     // Forcibly stop all workers.
-    cluster.disconnect(function() {
-      if (!isDone) {
-        isDone = true;
-        done();
+    try {
+      cluster.disconnect(function() {
+        if (!isDone) {
+          isDone = true;
+          done();
+        }
+      });
+    } catch(err) {
+      if (!/channel closed/.test(err.message)) {
+        throw err;
       }
-    });
+    }
 
     setTimeout(function() {
       if (isDone) {
@@ -64,6 +71,7 @@ describe("clusterphone", function() {
       Object.keys(cluster.workers).forEach(function(workerId) {
         cluster.workers[workerId].kill();
       });
+      isDone = true;
       done();
     }, 1000);
 
