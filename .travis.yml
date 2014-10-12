@@ -6,7 +6,7 @@ node_js:
 addons:
   code_climate:
     repo_token:
-      secure: "RSR2IpuuygM0IkHpQ8fPLieIbnvWulsz6c2PQ7HQzYJocYM9ACCTqrSjvQK8udldEn4RGw/3IgLtIPDQ66mRah4nNzuOJ2IVoH7Zo1c2L2cQ34uQdfHBfbiYTSqlz0mUtGQdLml1KzcftFr0z+kcg2uUOaacFHn7AtdlcDcpOHU="
+      secure: "QXpj5APHhYgEAb+9dbNPSYCI7UfPpCeSmoeRhwPHWuOKqxXK3vKwLeICPvP6JQTaUlPk3xdSQT/8lxb/V7jqXf0nDqdRV6IgPSPoHyV4qPjbHtGh/qOJHi9pCKQTeai0RGuqo2IhF/ONxeiy3QVaSn4k5WrNPmstNGXgzeSFLjQ="
 
 deploy:
   provider: npm
