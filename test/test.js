@@ -242,7 +242,7 @@ describe("clusterphone", function() {
 
     return clusterphone.sendTo(worker, "foo").ackd().then(function() {
       throw new Error("I shouldn't have been called.");
-    }).error(function(err) {
+    }).catch(function(err) {
       expect(err.message).to.match(/worker died/);
     });
   });
@@ -384,7 +384,7 @@ describe("clusterphone", function() {
 
     return clusterphone.sendTo(worker, "unknown").ackd().then(function() {
       throw new Error("I shouldn't have been called.");
-    }).error(function(err) {
+    }).catch(function(err) {
       expect(err.message).to.match(/Unhandled message type/);
     });
   });
@@ -393,7 +393,7 @@ describe("clusterphone", function() {
     return spawnWorkerAndWait("standard").then(function(worker) {
       return clusterphone.ns("unknowns").sendTo(worker, "namespaced").ackd().then(function() {
         throw new Error("I shouldn't be called.");
-      }).error(function(err) {
+      }).catch(function(err) {
         expect(err.message).to.match(/unknown namespace/i);
       });
     });
